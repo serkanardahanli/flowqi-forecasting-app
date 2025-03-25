@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # FlowQi - Financial Forecasting SaaS
 
 FlowQi is a powerful SaaS solution for financial forecasting and management, designed to help businesses of all sizes plan and track their financial future.
@@ -95,3 +96,6 @@ The application is designed with multi-tenancy in mind:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request. 
+=======
+# flowqi-forecasting-app
+>>>>>>> 8624e5dd27ad475d1485d5666d0b01bf39269cc9
