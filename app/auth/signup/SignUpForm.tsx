@@ -24,7 +24,9 @@ export default function SignUpForm({ redirectTo }: SignUpFormProps) {
       {
         auth: {
           persistSession: true,
-          storageKey: 'supabase-auth'
+          storageKey: 'sb-auth-token',
+          flowType: 'pkce',
+          debug: process.env.NODE_ENV === 'development'
         }
       }
     );

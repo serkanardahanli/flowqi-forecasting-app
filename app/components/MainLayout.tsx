@@ -1,18 +1,16 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import Link from 'next/link';
 import { getBrowserSupabaseClient } from '@/app/lib/supabase';
-import { XIcon, MenuIcon } from '@heroicons/react/24/outline';
-import { useState } from 'react';
-import UserMenu from './UserMenu';
+import { PlusIcon, PencilIcon, TrashIcon, XMarkIcon, Bars3Icon } from '@heroicons/react/24/outline';
+import UserMenu from '@/app/components/UserMenu';
 
-interface LayoutProps {
+interface MainLayoutProps {
   children: ReactNode;
 }
 
-export default function Layout({ children }: LayoutProps) {
+export default function MainLayout({ children }: MainLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -106,9 +104,9 @@ export default function Layout({ children }: LayoutProps) {
               >
                 <span className="sr-only">Open main menu</span>
                 {mobileMenuOpen ? (
-                  <XIcon className="block h-6 w-6" aria-hidden="true" />
+                  <XMarkIcon className="block h-6 w-6" aria-hidden="true" />
                 ) : (
-                  <MenuIcon className="block h-6 w-6" aria-hidden="true" />
+                  <Bars3Icon className="block h-6 w-6" aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -164,13 +162,15 @@ export default function Layout({ children }: LayoutProps) {
 
       <header className="bg-white shadow">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-          {/* Page header wordt nu gerenderd in elke page component */}
+          {/* Page header wordt gerenderd in elke page component */}
         </div>
       </header>
 
       <main>
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-          <div className="px-4 py-6 sm:px-0">{children}</div>
+          <div className="px-4 py-6 sm:px-0">
+            {children}
+          </div>
         </div>
       </main>
     </div>

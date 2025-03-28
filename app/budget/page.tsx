@@ -1,371 +1,431 @@
 'use client';
 
-import { useState } from 'react';
-import Layout from '@/app/components/Layout';
+import { useState, useEffect, useMemo } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Database } from '@/types/supabase';
+import { GlAccount } from '@/types/models';
+import { formatCurrency, getMonthName, getYearOptions } from '@/lib/utils';
+import MainLayout from '@/app/components/MainLayout';
+import { ensureClientUserProfile } from '@/app/utils/auth';
 
-export default function BudgetPage() {
-  const [activeTab, setActiveTab] = useState('planned');
-  const [activeYear, setActiveYear] = useState(2025);
+// Interface voor budget entries met GL account gegevens
+interface BudgetEntryWithGlAccount {
+  id: string;
+  gl_account_id: string;
+  gl_accounts?: GlAccount;
+  month: number;
+  year: number;
+  amount: number;
+  type: string;
+  organization_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Interface voor gegroepeerde budget data
+interface GroupedBudget {
+  [code: string]: {
+    name: string;
+    level: number;
+    code: string;
+    values: number[];
+    total: number;
+  };
+}
+
+export default function BudgetOverviewPage() {
+  const supabase = createClientComponentClient<Database>();
+  const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
+  const [budgetEntries, setBudgetEntries] = useState<BudgetEntryWithGlAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   
-  // Demo data voor inkomsten per maand
-  const monthlyRevenue = {
-    consultancy: [45000, 45000, 45000, 45000, 45000, 45000, 20000, 20000, 20000, 5000, 5000, 5000],
-    saas: [0, 0, 0, 0, 0, 0, 0, 0, 0, 25000, 50000, 75000]
+  const yearOptions = getYearOptions();
+  const months = Array.from({ length: 12 }, (_, i) => getMonthName(i + 1));
+
+  const getOrganizationId = async (): Promise<string | null> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return null;
+
+    // Use maybeSingle instead of single to prevent errors with multiple or no rows
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    if (error || !profile?.organization_id) {
+      console.error('Error getting organization ID:', error?.message || 'No organization found');
+      return null;
+    }
+
+    return profile.organization_id;
   };
 
-  // Demo data voor uitgaven per categorie
-  const monthlyExpenses = {
-    '4000': { description: 'Personeelskosten', values: [25000, 25000, 25000, 25000, 25000, 25000, 25000, 25000, 25000, 25000, 25000, 25000] },
-    '4400': { description: 'Marketing', values: [7500, 7500, 7500, 7500, 7500, 7500, 7500, 7500, 7500, 5000, 5000, 5000] },
-    '4600': { description: 'R&D', values: [4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000, 4000] },
-    '4700': { description: 'Kantoorkosten', values: [2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500, 2500] },
-    '4800': { description: 'Reiskosten', values: [1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500] }
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        window.location.href = '/auth/signin';
+        return;
+      }
+
+      // Ensure user profile is properly set up
+      await ensureClientUserProfile(session.user.id);
+      
+      const organizationId = await getOrganizationId();
+      if (!organizationId) {
+        setError('Geen organisatie gevonden. Log opnieuw in of neem contact op met ondersteuning.');
+        setLoading(false);
+        return;
+      }
+
+      // Fetch GL accounts
+      const { data: accountsData, error: accountsError } = await supabase
+        .from('gl_accounts')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .order('code');
+
+      if (accountsError) {
+        throw new Error(`Error fetching GL accounts: ${accountsError.message}`);
+      }
+
+      // Fetch budget entries
+      const { data: entriesData, error: entriesError } = await supabase
+        .from('budget_entries')
+        .select('*, gl_accounts(*)')
+        .eq('organization_id', organizationId)
+        .eq('year', selectedYear)
+        .eq('type', 'expense');
+
+      if (entriesError) {
+        throw new Error(`Error fetching budget entries: ${entriesError.message}`);
+      }
+
+      setGlAccounts(accountsData || []);
+      setBudgetEntries(entriesData || []);
+    } catch (err) {
+      console.error('Error:', err);
+      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van gegevens');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Maanden Array
-  const months = [
-    'Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 
-    'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'
-  ];
-  
-  // Functie om een nieuwe kostenpost toe te voegen
-  const handleAddExpense = () => {
-    alert('Functie "Voeg kostenpost toe" is aangeroepen!');
-    // In een echte implementatie zou je hier een nieuwe kostenpost toevoegen
+  useEffect(() => {
+    fetchData();
+  }, [selectedYear]);
+
+  // Groepeer budget entries per GL account en bereken maandelijkse totalen
+  const groupedBudget = useMemo(() => {
+    // Creëer een gegroepeerde object per GL account niveau
+    const level1Data: GroupedBudget = {};
+    const level2Data: GroupedBudget = {};
+    const level3Data: GroupedBudget = {};
+
+    // Functie om het totaal voor een entry aan een groep toe te voegen
+    const addToGroup = (group: GroupedBudget, code: string, name: string, level: number, amount: number, month: number) => {
+      if (!group[code]) {
+        group[code] = {
+          name,
+          level,
+          code,
+          values: Array(12).fill(0),
+          total: 0
+        };
+      }
+      group[code].values[month - 1] += amount;
+      group[code].total += amount;
+    };
+
+    // Verwerk budget entries
+    budgetEntries.forEach(entry => {
+      if (!entry.gl_accounts) return;
+
+      const account = entry.gl_accounts;
+      const amount = entry.amount || 0;
+      const month = entry.month;
+
+      // Voeg toe aan het juiste niveau
+      if (account.level === 3) {
+        // Niveau 3 (Cost Entry)
+        addToGroup(level3Data, account.code, account.name, account.level, amount, month);
+
+        // Voeg ook toe aan niveau 2 (parent)
+        if (account.parent_code) {
+          const parent = glAccounts.find(a => a.code === account.parent_code);
+          if (parent) {
+            addToGroup(level2Data, parent.code, parent.name, parent.level, amount, month);
+
+            // Voeg ook toe aan niveau 1 (grandparent)
+            if (parent.parent_code) {
+              const grandparent = glAccounts.find(a => a.code === parent.parent_code);
+              if (grandparent) {
+                addToGroup(level1Data, grandparent.code, grandparent.name, grandparent.level, amount, month);
+              }
+            }
+          }
+        }
+      } else if (account.level === 2) {
+        // Niveau 2 (Subgroup)
+        addToGroup(level2Data, account.code, account.name, account.level, amount, month);
+
+        // Voeg ook toe aan niveau 1 (parent)
+        if (account.parent_code) {
+          const parent = glAccounts.find(a => a.code === account.parent_code);
+          if (parent) {
+            addToGroup(level1Data, parent.code, parent.name, parent.level, amount, month);
+          }
+        }
+      } else if (account.level === 1) {
+        // Niveau 1 (Main group)
+        addToGroup(level1Data, account.code, account.name, account.level, amount, month);
+      }
+    });
+
+    return {
+      level1: Object.values(level1Data).sort((a, b) => a.code.localeCompare(b.code)),
+      level2: Object.values(level2Data).sort((a, b) => a.code.localeCompare(b.code)),
+      level3: Object.values(level3Data).sort((a, b) => a.code.localeCompare(b.code)),
+    };
+  }, [glAccounts, budgetEntries]);
+
+  // Bereken maandelijkse totalen
+  const monthlyTotals = useMemo(() => {
+    const totals = Array(12).fill(0);
+    
+    budgetEntries.forEach(entry => {
+      if (entry.month >= 1 && entry.month <= 12) {
+        totals[entry.month - 1] += entry.amount || 0;
+      }
+    });
+    
+    return totals;
+  }, [budgetEntries]);
+
+  // Bereken jaartotaal
+  const yearTotal = useMemo(() => {
+    return monthlyTotals.reduce((sum, val) => sum + val, 0);
+  }, [monthlyTotals]);
+
+  const handleYearChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedYear(parseInt(e.target.value));
   };
 
   return (
-    <Layout>
+    <MainLayout>
       <div className="space-y-6">
         <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-[#6366F1]">Budget Planning</h1>
-          <div className="flex gap-4">
-            <select 
-              value={activeYear}
-              onChange={(e) => setActiveYear(parseInt(e.target.value))}
-              className="px-3 py-2 bg-white border border-gray-300 rounded-md text-sm"
+          <h1 className="text-2xl font-bold text-[#1E1E3F]">Budget Overzicht</h1>
+          <div className="flex items-center">
+            <label htmlFor="yearSelector" className="mr-2">Jaar:</label>
+            <select
+              id="yearSelector"
+              value={selectedYear}
+              onChange={handleYearChange}
+              className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
             >
-              <option value={2024}>2024</option>
-              <option value={2025}>2025</option>
-              <option value={2026}>2026</option>
+              {yearOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
-            <button className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm text-[#6366F1] hover:bg-gray-50">
-              Exporteren
-            </button>
           </div>
         </div>
 
-        {/* KPI Kaarten */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
-            <div className="text-sm font-medium text-gray-500 mb-2">Geplande omzet 2025</div>
-            <div className="flex justify-between items-center">
-              <div className="text-2xl font-bold text-gray-800">€425K</div>
-              <span className="text-green-500">✓</span>
-            </div>
-            <div className="mt-1 text-xs text-gray-500">
-              SaaS 38%, Consultancy 62%
-            </div>
-          </div>
-          
-          <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
-            <div className="text-sm font-medium text-gray-500 mb-2">Geplande kosten 2025</div>
-            <div className="flex justify-between items-center">
-              <div className="text-2xl font-bold text-gray-800">€350K</div>
-              <span className="text-green-500">✓</span>
-            </div>
-            <div className="mt-1 text-xs text-gray-500">
-              Personeel 39%, R&D 14%
-            </div>
-          </div>
-          
-          <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
-            <div className="text-sm font-medium text-gray-500 mb-2">Verwacht resultaat 2025</div>
-            <div className="flex justify-between items-center">
-              <div className="text-2xl font-bold text-gray-800">€75K</div>
-              <span className="text-green-500">✓</span>
-            </div>
-          </div>
-          
-          <div className="bg-white p-4 rounded-lg shadow border border-gray-200">
-            <div className="text-sm font-medium text-gray-500 mb-2">Marketing target</div>
-            <div className="flex justify-between items-center">
-              <div className="text-2xl font-bold text-gray-800">€75K/80K</div>
-              <span className="text-yellow-500">⚠</span>
-            </div>
-            <div className="mt-3 w-full bg-gray-200 rounded-full h-2">
-              <div className="bg-[#6366F1] h-2 rounded-full" style={{ width: '94%' }}></div>
-            </div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-            <button
-              onClick={() => setActiveTab('planned')}
-              className={`
-                py-4 px-1 border-b-2 font-medium text-sm
-                ${activeTab === 'planned' 
-                  ? 'border-[#6366F1] text-[#6366F1]' 
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
-              `}
-            >
-              📈 Geplande Budget
-            </button>
-            <button
-              onClick={() => setActiveTab('realized')}
-              className={`
-                py-4 px-1 border-b-2 font-medium text-sm
-                ${activeTab === 'realized' 
-                  ? 'border-[#6366F1] text-[#6366F1]' 
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
-              `}
-            >
-              📊 Realisatie vs Planning
-            </button>
-          </nav>
-        </div>
-
-        {/* Tab content */}
-        {activeTab === 'planned' && (
-          <div className="space-y-6">
-            {/* Inkomsten */}
-            <div className="bg-white shadow rounded-lg">
-              <div className="px-6 py-5 border-b border-gray-200">
-                <h2 className="text-lg font-medium text-[#6366F1]">Inkomsten Planning</h2>
-              </div>
-              <div className="p-6">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead>
-                      <tr>
-                        <th className="px-3 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Type
-                        </th>
-                        {months.map((month) => (
-                          <th key={month} className="px-3 py-3 bg-gray-50 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            {month}
-                          </th>
-                        ))}
-                        <th className="px-3 py-3 bg-gray-100 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Totaal
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      <tr>
-                        <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          Consultancy
-                        </td>
-                        {monthlyRevenue.consultancy.map((amount, index) => (
-                          <td key={index} className="px-3 py-4 whitespace-nowrap text-right text-sm text-gray-500">
-                            <input
-                              type="text"
-                              defaultValue={`€${amount.toLocaleString('nl-NL')}`}
-                              className="w-24 text-right border-b border-dashed border-gray-300 focus:outline-none focus:border-[#6366F1]"
-                            />
-                          </td>
-                        ))}
-                        <td className="px-3 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900 bg-gray-50">
-                          €{monthlyRevenue.consultancy.reduce((sum, amount) => sum + amount, 0).toLocaleString('nl-NL')}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          SaaS
-                        </td>
-                        {monthlyRevenue.saas.map((amount, index) => (
-                          <td key={index} className="px-3 py-4 whitespace-nowrap text-right text-sm text-gray-500">
-                            <input
-                              type="text"
-                              defaultValue={`€${amount.toLocaleString('nl-NL')}`}
-                              className="w-24 text-right border-b border-dashed border-gray-300 focus:outline-none focus:border-[#6366F1]"
-                            />
-                          </td>
-                        ))}
-                        <td className="px-3 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900 bg-gray-50">
-                          €{monthlyRevenue.saas.reduce((sum, amount) => sum + amount, 0).toLocaleString('nl-NL')}
-                        </td>
-                      </tr>
-                      <tr className="bg-gray-50">
-                        <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          Totaal
-                        </td>
-                        {months.map((_, index) => {
-                          const total = monthlyRevenue.consultancy[index] + monthlyRevenue.saas[index];
-                          return (
-                            <td key={index} className="px-3 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">
-                              €{total.toLocaleString('nl-NL')}
-                            </td>
-                          );
-                        })}
-                        <td className="px-3 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900 bg-gray-100">
-                          €{
-                            [...monthlyRevenue.consultancy, ...monthlyRevenue.saas]
-                              .reduce((sum, amount) => sum + amount, 0)
-                              .toLocaleString('nl-NL')
-                          }
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            {/* Uitgaven */}
-            <div className="bg-white shadow rounded-lg">
-              <div className="px-6 py-5 border-b border-gray-200">
-                <h2 className="text-lg font-medium text-[#6366F1]">Uitgaven Planning</h2>
-                <div className="mt-4">
-                  <button 
-                    onClick={handleAddExpense}
-                    className="px-3 py-1.5 bg-[#6366F1] text-white rounded hover:bg-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#6366F1] text-sm"
-                  >
-                    + Voeg kostenpost toe
-                  </button>
-                </div>
-              </div>
-              <div className="p-6">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead>
-                      <tr>
-                        <th className="px-3 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Code
-                        </th>
-                        <th className="px-3 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Omschrijving
-                        </th>
-                        {months.map((month) => (
-                          <th key={month} className="px-3 py-3 bg-gray-50 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            {month}
-                          </th>
-                        ))}
-                        <th className="px-3 py-3 bg-gray-100 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Totaal
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {Object.entries(monthlyExpenses).map(([code, { description, values }]) => (
-                        <tr key={code}>
-                          <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {code}
-                          </td>
-                          <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {description}
-                          </td>
-                          {values.map((amount, index) => (
-                            <td key={index} className="px-3 py-4 whitespace-nowrap text-right text-sm text-red-600">
-                              <input
-                                type="text"
-                                defaultValue={`-€${amount.toLocaleString('nl-NL')}`}
-                                className="w-24 text-right border-b border-dashed border-gray-300 focus:outline-none focus:border-[#6366F1] text-red-600"
-                              />
-                            </td>
-                          ))}
-                          <td className="px-3 py-4 whitespace-nowrap text-right text-sm font-medium text-red-600 bg-gray-50">
-                            -€{values.reduce((sum, amount) => sum + amount, 0).toLocaleString('nl-NL')}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr className="bg-gray-50">
-                        <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900" colSpan={2}>
-                          Totaal
-                        </td>
-                        {months.map((_, monthIndex) => {
-                          const total = Object.values(monthlyExpenses).reduce(
-                            (sum, { values }) => sum + values[monthIndex], 
-                            0
-                          );
-                          return (
-                            <td key={monthIndex} className="px-3 py-4 whitespace-nowrap text-right text-sm font-medium text-red-600">
-                              -€{total.toLocaleString('nl-NL')}
-                            </td>
-                          );
-                        })}
-                        <td className="px-3 py-4 whitespace-nowrap text-right text-sm font-medium text-red-600 bg-gray-100">
-                          -€{
-                            Object.values(monthlyExpenses)
-                              .flatMap(({ values }) => values)
-                              .reduce((sum, amount) => sum + amount, 0)
-                              .toLocaleString('nl-NL')
-                          }
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+        {error && (
+          <div className="mb-4 p-4 text-sm text-red-700 bg-red-100 rounded-lg">
+            {error}
           </div>
         )}
 
-        {/* Realisatie tab content */}
-        {activeTab === 'realized' && (
+        {loading ? (
+          <div className="text-center py-10">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#1E1E3F] border-r-transparent"></div>
+            <p className="mt-4 text-gray-500">Gegevens laden...</p>
+          </div>
+        ) : budgetEntries.length === 0 ? (
+          <div className="bg-white shadow rounded-lg p-6 text-center text-gray-500">
+            Geen budgetposten gevonden voor {selectedYear}. Voeg budgetposten toe via de uitgavenpagina.
+          </div>
+        ) : (
           <div className="bg-white shadow rounded-lg">
-            <div className="px-6 py-5 border-b border-gray-200">
-              <h2 className="text-lg font-medium text-[#6366F1]">Realisatie vs Planning</h2>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="bg-white p-4 rounded-lg border border-gray-200">
-                  <div className="text-sm text-gray-500">KPI Score</div>
-                  <div className="text-2xl font-bold mt-1">82%</div>
-                  <div className="mt-1 text-xs text-gray-500">
-                    Hoe goed presteren we t.o.v. plan
-                  </div>
-                  <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-[#6366F1] h-2 rounded-full" style={{ width: '82%' }}></div>
-                  </div>
+            <div className="space-y-8">
+              {/* Niveau 1: Hoofdgroepen */}
+              <div className="bg-white shadow overflow-hidden rounded-lg">
+                <div className="px-4 py-5 bg-gray-50 border-b border-gray-200">
+                  <h2 className="text-lg font-medium text-gray-700">Uitgaven per hoofdgroep</h2>
                 </div>
-                
-                <div className="bg-white p-4 rounded-lg border border-gray-200">
-                  <div className="text-sm text-gray-500">Burn Rate</div>
-                  <div className="text-2xl font-bold mt-1">€20K/mnd</div>
-                  <div className="mt-1 text-xs text-gray-500">
-                    Huidige uitgaven tempo
-                  </div>
-                </div>
-                
-                <div className="bg-white p-4 rounded-lg border border-gray-200">
-                  <div className="text-sm text-gray-500">Top Performer</div>
-                  <div className="text-2xl font-bold mt-1">SaaS omzet</div>
-                  <div className="mt-1 text-xs text-gray-500">
-                    +22% boven verwachting
-                  </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Code
+                        </th>
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Naam
+                        </th>
+                        {months.map((month, i) => (
+                          <th key={i} scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            {month.substring(0, 3)}
+                          </th>
+                        ))}
+                        <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Totaal
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {groupedBudget.level1.map((item, i) => (
+                        <tr key={item.code} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {item.code}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                            {item.name}
+                          </td>
+                          {item.values.map((value, i) => (
+                            <td key={i} className="px-3 py-4 whitespace-nowrap text-sm text-right text-gray-700">
+                              {formatCurrency(value)}
+                            </td>
+                          ))}
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
+                            {formatCurrency(item.total)}
+                          </td>
+                        </tr>
+                      ))}
+                      {/* Totaalrij */}
+                      <tr className="bg-gray-100">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                          Totaal
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap"></td>
+                        {monthlyTotals.map((total, i) => (
+                          <td key={i} className="px-3 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
+                            {formatCurrency(total)}
+                          </td>
+                        ))}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-gray-900">
+                          {formatCurrency(yearTotal)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
-              
-              <h3 className="font-medium text-lg mb-4 text-[#6366F1]">Omzet Vergelijking</h3>
-              <div className="overflow-x-auto mb-6">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead>
-                    <tr className="bg-gray-50">
-                      <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categorie</th>
-                      <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Gepland</th>
-                      <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Werkelijk</th>
-                      <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Verschil</th>
-                      <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">% Verschil</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    <tr>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900">Consultancy</td>
-                      <td className="px-3 py-4 whitespace-nowrap text-right text-sm text-gray-500">€345.000</td>
-                      <td className="px-3 py-4 whitespace-nowrap text-right text-sm text-gray-500">€312.840</td>
-                      <td className="px-3 py-4 whitespace-nowrap text-right text-sm text-red-600">-€32.160</td>
-                      <td className="px-3 py-4 whitespace-nowrap text-right text-sm text-red-600">-9.3%</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+
+              {/* Niveau 2: Subgroepen */}
+              {groupedBudget.level2.length > 0 && (
+                <div className="bg-white shadow overflow-hidden rounded-lg">
+                  <div className="px-4 py-5 bg-gray-50 border-b border-gray-200">
+                    <h2 className="text-lg font-medium text-gray-700">Uitgaven per subgroep</h2>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Code
+                          </th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Naam
+                          </th>
+                          {months.map((month, i) => (
+                            <th key={i} scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {month.substring(0, 3)}
+                            </th>
+                          ))}
+                          <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Totaal
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {groupedBudget.level2.map((item, i) => (
+                          <tr key={item.code} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {item.code}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                              {item.name}
+                            </td>
+                            {item.values.map((value, i) => (
+                              <td key={i} className="px-3 py-4 whitespace-nowrap text-sm text-right text-gray-700">
+                                {formatCurrency(value)}
+                              </td>
+                            ))}
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
+                              {formatCurrency(item.total)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Niveau 3: Kostenposten */}
+              {groupedBudget.level3.length > 0 && (
+                <div className="bg-white shadow overflow-hidden rounded-lg">
+                  <div className="px-4 py-5 bg-gray-50 border-b border-gray-200">
+                    <h2 className="text-lg font-medium text-gray-700">Uitgaven per kostenpost</h2>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Code
+                          </th>
+                          <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Naam
+                          </th>
+                          {months.map((month, i) => (
+                            <th key={i} scope="col" className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              {month.substring(0, 3)}
+                            </th>
+                          ))}
+                          <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Totaal
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {groupedBudget.level3.map((item, i) => (
+                          <tr key={item.code} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                              {item.code}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                              {item.name}
+                            </td>
+                            {item.values.map((value, i) => (
+                              <td key={i} className="px-3 py-4 whitespace-nowrap text-sm text-right text-gray-700">
+                                {formatCurrency(value)}
+                              </td>
+                            ))}
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
+                              {formatCurrency(item.total)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
-    </Layout>
+    </MainLayout>
   );
 } 

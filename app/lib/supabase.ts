@@ -1,37 +1,52 @@
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from './database.types';
+import { createBrowserClient } from '@supabase/ssr'
+import { type CookieOptions } from '@supabase/ssr'
 
-// Haal de Supabase URL en anonymous key uit de environment variabelen
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Type for the database - adjust according to your project
+import type { Database } from '@/types/supabase'
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Supabase credentials missing! Check your .env.local file.');
-}
-
-// Singleton instance
-let browserClient: ReturnType<typeof createClient<Database>> | null = null;
-
+// Helper for browser-only client
 export function getBrowserSupabaseClient() {
-  if (!browserClient) {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error('Supabase credentials missing. Check your environment variables.');
-    }
-    
-    console.log('Creating new Supabase client instance');
-    browserClient = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-        flowType: 'pkce',
-        debug: process.env.NODE_ENV === 'development', // Debug alleen in development mode
-        storage: localStorage, // Expliciet localStorage gebruiken
-        storageKey: 'sb-auth-token', // Consistent gebruik van storage key
+  return createBrowserClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          if (typeof window === 'undefined') return null
+          const cookie = document.cookie
+            .split('; ')
+            .find((row) => row.startsWith(`${name}=`))
+            ?.split('=')[1]
+          return cookie
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          if (typeof window === 'undefined') return
+          let cookie = `${name}=${value}`
+          if (options?.expires) {
+            cookie += `; expires=${options.expires.toUTCString()}`
+          }
+          if (options?.path) {
+            cookie += `; path=${options.path}`
+          } else {
+            cookie += `; path=/`
+          }
+          if (options?.sameSite) {
+            cookie += `; samesite=${options.sameSite}`
+          } else {
+            cookie += `; samesite=lax`
+          }
+          if (options?.secure || process.env.NODE_ENV === 'production') {
+            cookie += `; secure`
+          }
+          document.cookie = cookie
+        },
+        remove(name: string, options: CookieOptions) {
+          if (typeof window === 'undefined') return
+          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=${options?.path || '/'}`
+        },
       },
-    });
-  }
-  return browserClient;
+    }
+  )
 }
 
 export type { Database }; 

@@ -1,64 +1,56 @@
 'use client';
 
-import { ReactNode } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import MainLayout from '@/app/components/MainLayout';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 
 export default function DashboardLayout({
   children,
 }: {
-  children: ReactNode;
+  children: React.ReactNode;
 }) {
+  const router = useRouter();
   const pathname = usePathname();
+  const [loading, setLoading] = useState(true);
 
-  const navigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: '📊' },
-    { name: 'Budget', href: '/budget', icon: '💰' },
-    { name: 'Omzet', href: '/omzet', icon: '💹' },
-    { name: 'Uitgaven', href: '/uitgaven', icon: '📉' },
-  ];
+  useEffect(() => {
+    async function checkSession() {
+      try {
+        const supabase = getBrowserSupabaseClient();
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error checking auth session:', error);
+          router.push('/auth/signin');
+          return;
+        }
+        
+        if (!session) {
+          router.push('/auth/signin');
+          return;
+        }
+        
+        setLoading(false);
+      } catch (error) {
+        console.error('Unexpected error in auth check:', error);
+        router.push('/auth/signin');
+      }
+    }
+    
+    checkSession();
+  }, [router]);
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <div className="w-64 bg-indigo-900 min-h-screen fixed">
-        <div className="flex items-center justify-center h-16 px-4">
-          <div className="text-white font-bold text-xl">FlowQi</div>
+  if (loading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-t-2 border-[#1E1E3F]"></div>
+          <p className="text-xl font-medium text-gray-500">Laden...</p>
         </div>
-        <nav className="mt-5 px-2 space-y-1">
-          {navigation.map((item) => {
-            const isActive = pathname === item.href;
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md ${
-                  isActive
-                    ? 'bg-indigo-800 text-white'
-                    : 'text-indigo-100 hover:bg-indigo-800 hover:text-white'
-                }`}
-              >
-                <span className="mr-3">{item.icon}</span>
-                {item.name}
-              </Link>
-            );
-          })}
-        </nav>
       </div>
-      
-      {/* Main content */}
-      <div className="flex-1 ml-64">
-        <header className="bg-white shadow-sm p-4">
-          <div className="flex justify-between items-center">
-            <h1 className="text-xl font-semibold text-gray-800">
-              {navigation.find(item => pathname === item.href)?.name || 'FlowQi'}
-            </h1>
-          </div>
-        </header>
-        <main className="p-6">
-          {children}
-        </main>
-      </div>
-    </div>
-  );
+    );
+  }
+
+  return <MainLayout>{children}</MainLayout>;
 } 

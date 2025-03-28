@@ -88,7 +88,8 @@ export const createClient = () => {
         autoRefreshToken: true,
         detectSessionInUrl: true,
         flowType: 'pkce',
-        debug: true
+        debug: true,
+        storageKey: 'sb-auth-token'
       }
     }
   )

@@ -10,7 +10,8 @@ import {
   ShoppingBagIcon, 
   ClipboardDocumentListIcon,
   UsersIcon,
-  CalculatorIcon
+  CalculatorIcon,
+  BookOpenIcon
 } from '@heroicons/react/24/outline';
 import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 
@@ -29,6 +30,7 @@ export default function Navigation() {
     { name: 'Budget', href: '/budget', icon: CalculatorIcon },
     { name: 'Omzet', href: '/omzet', icon: CurrencyEuroIcon },
     { name: 'Uitgaven', href: '/uitgaven', icon: ClipboardDocumentListIcon },
+    { name: 'Grootboek', href: '/gl-accounts', icon: BookOpenIcon },
     { name: 'Producten', href: '/products', icon: ShoppingBagIcon },
     { name: 'Team', href: '/team', icon: UsersIcon },
     { name: 'Instellingen', href: '/settings', icon: Cog6ToothIcon },
