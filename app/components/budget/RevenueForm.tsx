@@ -2,6 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
+import { 
+  FormInput, 
+  FormSelect, 
+  FormTextarea, 
+  FormGroup, 
+  FormRow 
+} from '@/app/components/ui/FormComponents';
 
 // Type definities
 interface Product {
@@ -62,6 +69,19 @@ export default function RevenueForm({
   // State voor het tonen van verschillende formulieropties
   const [showMonthlyHours, setShowMonthlyHours] = useState<boolean>(false);
   
+  // Filter eligibleAccounts voor beter debug inzicht
+  const eligibleAccounts = glAccounts.filter(acc => acc.level === 3 && acc.type === 'revenue');
+
+  // Debug informatie loggen bij het laden van de component
+  useEffect(() => {
+    console.log('RevenueForm: Geladen GL accounts details:');
+    console.log('Totaal aantal GL Accounts:', glAccounts.length);
+    console.log('Inkomstenrekeningen:', glAccounts.filter(acc => acc.type === 'revenue').length);
+    console.log('Niveau 3 rekeningen:', glAccounts.filter(acc => acc.level === 3).length);
+    console.log('Bruikbare rekeningen (niveau 3 + inkomsten):', eligibleAccounts.length);
+    console.log('GL Accounts details:', eligibleAccounts);
+  }, [glAccounts]);
+  
   // React Hook Form setup voor SaaS type
   const saasForm = useForm<SaasRevenueFormData>({
     defaultValues: {
@@ -90,22 +110,23 @@ export default function RevenueForm({
   
   // Maanden array voor selecties
   const months = [
-    { value: 1, label: 'Januari' },
-    { value: 2, label: 'Februari' },
-    { value: 3, label: 'Maart' },
-    { value: 4, label: 'April' },
-    { value: 5, label: 'Mei' },
-    { value: 6, label: 'Juni' },
-    { value: 7, label: 'Juli' },
-    { value: 8, label: 'Augustus' },
-    { value: 9, label: 'September' },
-    { value: 10, label: 'Oktober' },
-    { value: 11, label: 'November' },
-    { value: 12, label: 'December' }
+    { value: '1', label: 'Januari' },
+    { value: '2', label: 'Februari' },
+    { value: '3', label: 'Maart' },
+    { value: '4', label: 'April' },
+    { value: '5', label: 'Mei' },
+    { value: '6', label: 'Juni' },
+    { value: '7', label: 'Juli' },
+    { value: '8', label: 'Augustus' },
+    { value: '9', label: 'September' },
+    { value: '10', label: 'Oktober' },
+    { value: '11', label: 'November' },
+    { value: '12', label: 'December' }
   ];
   
   // Jaar opties genereren (huidig jaar +/- 5 jaar)
-  const years = Array.from({ length: 10 }, (_, i) => currentYear - 3 + i);
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - 3 + i)
+    .map(year => ({ value: year.toString(), label: year.toString() }));
   
   // Submit handler
   const handleFormSubmit = (data: any) => {
@@ -126,138 +147,156 @@ export default function RevenueForm({
     reset();
   };
   
+  // Convert product array to options format for FormSelect
+  const productOptions = products.map(product => ({
+    value: product.id,
+    label: product.name
+  }));
+
+  // Convert GL accounts to options format
+  const glAccountOptions = [
+    {
+      value: "99e0f11f-e683-43f8-957e-e702aec3ba3c", 
+      label: "8000 - Omzet"
+    },
+    ...eligibleAccounts.map(account => ({
+      value: account.id,
+      label: `${account.code} - ${account.name}`
+    }))
+  ];
+
   return (
     <form onSubmit={type === 'saas' ? saasForm.handleSubmit(handleFormSubmit) : consultancyForm.handleSubmit(handleFormSubmit)} className="space-y-6">
       {type === 'saas' ? (
         // SaaS Omzet Formulier
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label htmlFor="product_id" className="block text-sm font-medium text-gray-700">
-                Product
-              </label>
-              <select
-                id="product_id"
-                {...saasForm.register('product_id', { required: 'Product is verplicht' })}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-              >
-                <option value="">Selecteer een product</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
-              {saasForm.formState.errors.product_id && (
-                <p className="mt-1 text-sm text-red-600">{saasForm.formState.errors.product_id.message}</p>
-              )}
-            </div>
+          <FormGroup>
+            <FormRow>
+              <Controller
+                control={saasForm.control}
+                name="product_id"
+                rules={{ required: 'Product is verplicht' }}
+                render={({ field, fieldState }) => (
+                  <FormSelect
+                    id="product_id"
+                    label="Product"
+                    placeholder="Selecteer een product"
+                    options={productOptions}
+                    error={fieldState.error?.message}
+                    required
+                    {...field}
+                  />
+                )}
+              />
+              
+              <Controller
+                control={saasForm.control}
+                name="gl_account_id"
+                rules={{ required: 'GL Account is verplicht' }}
+                render={({ field, fieldState }) => (
+                  <FormSelect
+                    id="gl_account_id"
+                    label="GL Account"
+                    placeholder="Selecteer een GL account"
+                    options={glAccountOptions}
+                    error={fieldState.error?.message}
+                    required
+                    {...field}
+                  />
+                )}
+              />
+            </FormRow>
             
-            <div>
-              <label htmlFor="gl_account_id" className="block text-sm font-medium text-gray-700">
-                GL Account
-              </label>
-              <select
-                id="gl_account_id"
-                {...saasForm.register('gl_account_id', { required: 'GL Account is verplicht' })}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-              >
-                <option value="">Selecteer een GL account</option>
-                {glAccounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.code} - {account.name}
-                  </option>
-                ))}
-              </select>
-              {saasForm.formState.errors.gl_account_id && (
-                <p className="mt-1 text-sm text-red-600">{saasForm.formState.errors.gl_account_id.message}</p>
-              )}
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label htmlFor="users" className="block text-sm font-medium text-gray-700">
-                Aantal gebruikers
-              </label>
-              <input
-                type="number"
-                id="users"
-                min="1"
-                {...saasForm.register('users', { 
+            <FormRow>
+              <Controller
+                control={saasForm.control}
+                name="users"
+                rules={{ 
                   required: 'Aantal gebruikers is verplicht',
-                  valueAsNumber: true,
                   min: { value: 1, message: 'Aantal gebruikers moet minimaal 1 zijn' }
-                })}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                }}
+                render={({ field, fieldState }) => (
+                  <FormInput
+                    id="users"
+                    type="number"
+                    min="1"
+                    label="Aantal gebruikers"
+                    error={fieldState.error?.message}
+                    required
+                    {...field}
+                  />
+                )}
               />
-              {saasForm.formState.errors.users && (
-                <p className="mt-1 text-sm text-red-600">{saasForm.formState.errors.users.message}</p>
-              )}
-            </div>
-            
-            <div>
-              <label htmlFor="amount" className="block text-sm font-medium text-gray-700">
-                Prijs per gebruiker (€)
-              </label>
-              <input
-                type="number"
-                id="amount"
-                step="0.01"
-                {...saasForm.register('amount', { 
+              
+              <Controller
+                control={saasForm.control}
+                name="amount"
+                rules={{ 
                   required: 'Prijs is verplicht',
-                  valueAsNumber: true,
                   min: { value: 0, message: 'Prijs mag niet negatief zijn' }
-                })}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                }}
+                render={({ field, fieldState }) => (
+                  <FormInput
+                    id="amount"
+                    type="number"
+                    step="0.01"
+                    label="Prijs per gebruiker (€)"
+                    error={fieldState.error?.message}
+                    required
+                    {...field}
+                  />
+                )}
               />
-              {saasForm.formState.errors.amount && (
-                <p className="mt-1 text-sm text-red-600">{saasForm.formState.errors.amount.message}</p>
-              )}
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label htmlFor="month" className="block text-sm font-medium text-gray-700">
-                Maand
-              </label>
-              <select
-                id="month"
-                {...saasForm.register('month', { required: 'Maand is verplicht', valueAsNumber: true })}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-              >
-                {months.map((month) => (
-                  <option key={month.value} value={month.value}>
-                    {month.label}
-                  </option>
-                ))}
-              </select>
-              {saasForm.formState.errors.month && (
-                <p className="mt-1 text-sm text-red-600">{saasForm.formState.errors.month.message}</p>
-              )}
-            </div>
+            </FormRow>
             
-            <div>
-              <label htmlFor="year" className="block text-sm font-medium text-gray-700">
-                Jaar
-              </label>
-              <select
-                id="year"
-                {...saasForm.register('year', { required: 'Jaar is verplicht', valueAsNumber: true })}
-                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-              >
-                {years.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-              {saasForm.formState.errors.year && (
-                <p className="mt-1 text-sm text-red-600">{saasForm.formState.errors.year.message}</p>
+            <FormRow>
+              <Controller
+                control={saasForm.control}
+                name="month"
+                rules={{ required: 'Maand is verplicht' }}
+                render={({ field, fieldState }) => (
+                  <FormSelect
+                    id="month"
+                    label="Maand"
+                    options={months}
+                    error={fieldState.error?.message}
+                    required
+                    {...field}
+                  />
+                )}
+              />
+              
+              <Controller
+                control={saasForm.control}
+                name="year"
+                rules={{ required: 'Jaar is verplicht' }}
+                render={({ field, fieldState }) => (
+                  <FormSelect
+                    id="year"
+                    label="Jaar"
+                    options={years}
+                    error={fieldState.error?.message}
+                    required
+                    {...field}
+                  />
+                )}
+              />
+            </FormRow>
+            
+            <Controller
+              control={saasForm.control}
+              name="notes"
+              render={({ field, fieldState }) => (
+                <FormTextarea
+                  id="notes"
+                  label="Toelichting (optioneel)"
+                  rows={3}
+                  error={fieldState.error?.message}
+                  {...field}
+                />
               )}
-            </div>
-          </div>
+            />
+          </FormGroup>
         </>
       ) : (
         // Consultancy Omzet Formulier
@@ -369,32 +408,20 @@ export default function RevenueForm({
         </>
       )}
       
-      <div>
-        <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
-          Opmerkingen
-        </label>
-        <textarea
-          id="notes"
-          rows={3}
-          {...(type === 'saas' ? saasForm.register('notes') : consultancyForm.register('notes'))}
-          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-        />
-      </div>
-      
-      <div className="flex justify-end space-x-3">
+      <div className="flex justify-end space-x-3 pt-5">
         <button
           type="button"
           onClick={onCancel}
-          className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
         >
           Annuleren
         </button>
         <button
           type="submit"
           disabled={isSubmitting}
-          className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          className="px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
         >
-          {isSubmitting ? 'Bezig met opslaan...' : 'Opslaan'}
+          {isSubmitting ? 'Bezig...' : 'Toevoegen'}
         </button>
       </div>
     </form>
