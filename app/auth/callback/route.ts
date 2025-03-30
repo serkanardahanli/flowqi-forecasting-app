@@ -11,22 +11,10 @@ export async function GET(request: NextRequest) {
   
   if (code) {
     try {
+      console.log('Processing auth callback with code');
+      
       // Create authenticated Supabase client using the route handler helper
-      const cookieStore = cookies()
-      const supabase = createRouteHandlerClient<Database>({
-        cookies: {
-          async get(name: string) {
-            const cookie = await cookieStore.get(name)
-            return cookie?.value
-          },
-          async set(name: string, value: string, options: any) {
-            await cookieStore.set(name, value, options)
-          },
-          async remove(name: string, options: any) {
-            await cookieStore.set(name, '', { ...options, maxAge: 0 })
-          },
-        },
-      })
+      const supabase = createRouteHandlerClient<Database>({ cookies })
       
       // Exchange the auth code for a session
       const { error } = await supabase.auth.exchangeCodeForSession(code)
