@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import Sidebar from '@/app/components/shared/Sidebar';
 
-export default function BudgetLayout({
+export default function GLAccountsLayout({
   children,
 }: {
   children: React.ReactNode;

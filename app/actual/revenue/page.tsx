@@ -7,9 +7,17 @@ import { PlusIcon, ArrowPathIcon, PencilIcon, TrashIcon } from '@heroicons/react
 import { ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import PeriodSelector, { Period } from '@/app/components/dashboard/PeriodSelector';
 import { formatCurrency } from '@/lib/utils';
-import ExpenseForm from '@/app/components/budget/ExpenseForm';
+import RevenueForm from '@/app/components/actual/RevenueForm';
 
-console.log('Expense page loading - budget/expenses/page.tsx');
+console.log('Actual Revenue page loading - actual/revenue/page.tsx');
+
+// Definieer interface voor product
+interface Product {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+}
 
 // Definieer interface voor GL Account
 interface GLAccount {
@@ -21,8 +29,8 @@ interface GLAccount {
   level: number;
 }
 
-// Definieer interface voor budget (uitgaven) entry
-interface BudgetEntry {
+// Definieer interface voor budget (inkomsten) entry
+interface RevenueEntry {
   id?: string;
   gl_account_id: string;
   type: 'Planned' | 'Actual';
@@ -32,20 +40,28 @@ interface BudgetEntry {
   description?: string;
   category_code?: string;
   gl_account?: GLAccount;
+  product_id?: string;
+  client_name?: string;
+  project_name?: string;
+  number_of_users?: number;
+  hours?: number;
+  start_date?: string;
+  end_date?: string;
+  hourly_rate?: number;
 }
 
-// Definieer interface voor uitgavecategorie (hiërarchisch)
-interface ExpenseCategory {
+// Definieer interface voor inkomstencategorie (hiërarchisch)
+interface RevenueCategory {
   code: string;
   name: string;
-  planned: number;
-  actual?: number;
-  subcategories?: ExpenseCategory[];
+  actual: number;
+  planned?: number;
+  subcategories?: RevenueCategory[];
   level: number;
   gl_account_id?: string;
 }
 
-export default function BudgetExpensesPage() {
+export default function ActualRevenuePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const yearParam = searchParams?.get('year');
@@ -59,11 +75,13 @@ export default function BudgetExpensesPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [glAccounts, setGLAccounts] = useState<GLAccount[]>([]);
-  const [budgetEntries, setBudgetEntries] = useState<BudgetEntry[]>([]);
-  const [hierarchicalExpenses, setHierarchicalExpenses] = useState<ExpenseCategory[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [revenueEntries, setRevenueEntries] = useState<RevenueEntry[]>([]);
+  const [hierarchicalRevenue, setHierarchicalRevenue] = useState<RevenueCategory[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showForm, setShowForm] = useState<boolean>(false);
-  const [editingEntry, setEditingEntry] = useState<BudgetEntry | null>(null);
+  const [editingEntry, setEditingEntry] = useState<RevenueEntry | null>(null);
+  const [revenueType, setRevenueType] = useState<'saas' | 'consultancy'>('saas');
   
   const supabase = createClientComponentClient();
 
@@ -97,70 +115,53 @@ export default function BudgetExpensesPage() {
       try {
         const { startMonth, endMonth, startYear, endYear } = getDateRange();
         
-        // Gebruiker sessie controleren
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          router.push('/auth/signin');
-          return;
-        }
-        
-        // Organisatie ID ophalen
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('organization_id')
-          .eq('id', session.user.id)
-          .single();
-        
-        if (!profile?.organization_id) {
-          setError('Geen organisatie gevonden. Log opnieuw in of neem contact op met ondersteuning.');
-          setIsLoading(false);
-          return;
-        }
-        
-        const organizationId = profile.organization_id;
-        
-        // GL accounts ophalen
-        const { data: glAccountsData, error: glAccountsError } = await supabase
+        // GL rekeningen ophalen
+        const { data: glAccountsData, error: glError } = await supabase
           .from('gl_accounts')
           .select('*')
-          .eq('organization_id', organizationId)
-          .eq('type', 'expense');
+          .order('code')
+          .eq('type', 'revenue');
         
-        if (glAccountsError) {
-          console.error('Error fetching GL accounts:', glAccountsError);
-          throw new Error('Error fetching GL accounts: ' + glAccountsError.message);
-        }
+        if (glError) throw new Error('Fout bij ophalen van GL rekeningen: ' + glError.message);
+        setGLAccounts(glAccountsData || []);
         
-        console.log('Raw GL accounts response:', glAccountsData);
-        console.log('Sample GL account (first one):', glAccountsData && glAccountsData.length > 0 ? glAccountsData[0] : 'No accounts found');
-        console.log('Opgehaalde GL rekeningen:', glAccountsData);
-        console.log('Aantal GL rekeningen:', glAccountsData?.length || 0);
-        console.log('GL rekeningen niveau 3:', glAccountsData?.filter(acc => acc.level === 3).length || 0);
+        // Producten ophalen
+        const { data: productsData, error: productsError } = await supabase
+          .from('products')
+          .select('*')
+          .order('name');
         
-        // Budget entries ophalen
-        let expensesQuery = supabase
+        if (productsError) throw new Error('Fout bij ophalen van producten: ' + productsError.message);
+        setProducts(productsData || []);
+        
+        // Actuele entries voor inkomsten ophalen
+        let query = supabase
           .from('budget_entries')
           .select('*, gl_account:gl_account_id(*)')
-          .eq('organization_id', organizationId)
-          .eq('year', year)
-          .eq('type', 'Planned');
+          .eq('type', 'Actual')
+          .gte('year', startYear)
+          .lte('year', endYear);
         
         if (period === 'month') {
-          expensesQuery = expensesQuery.eq('month', month);
+          query = query.eq('month', month);
         } else {
-          expensesQuery = expensesQuery.gte('month', startMonth).lte('month', endMonth);
+          query = query.gte('month', startMonth).lte('month', endMonth);
         }
         
-        const { data: entriesData, error: entriesError } = await expensesQuery;
+        const { data: entriesData, error: entriesError } = await query;
         
-        if (entriesError) throw new Error('Error fetching budget entries: ' + entriesError.message);
+        if (entriesError) throw new Error('Fout bij ophalen van actuele entries: ' + entriesError.message);
         
-        setGLAccounts(glAccountsData || []);
-        setBudgetEntries(entriesData || []);
+        // Filter entries om alleen inkomsten te behouden
+        const revenueEntries = entriesData?.filter(entry => 
+          entry.gl_account?.type === 'revenue'
+        ) || [];
         
-        // Hiërarchische structuur bouwen van uitgaven
-        const hierarchical = buildHierarchicalExpenses(glAccountsData || [], entriesData || []);
-        setHierarchicalExpenses(hierarchical);
+        setRevenueEntries(revenueEntries);
+        
+        // Hiërarchische structuur bouwen van inkomsten
+        const hierarchical = buildHierarchicalRevenue(glAccountsData || [], revenueEntries);
+        setHierarchicalRevenue(hierarchical);
         
         // Categorieën uitvouwen als er een specifieke categorie is doorgegeven
         if (categoryParam) {
@@ -168,8 +169,8 @@ export default function BudgetExpensesPage() {
         }
         
       } catch (err) {
-        console.error('Error fetching data:', err);
-        setError(err instanceof Error ? err.message : 'An unknown error occurred');
+        console.error('Fout bij ophalen data:', err);
+        setError(err instanceof Error ? err.message : 'Er is een onbekende fout opgetreden');
       } finally {
         setIsLoading(false);
       }
@@ -178,15 +179,15 @@ export default function BudgetExpensesPage() {
     fetchData();
   }, [year, month, period, categoryParam]);
   
-  // Bouw hiërarchische structuur van uitgaven
-  const buildHierarchicalExpenses = (accounts: GLAccount[], entries: BudgetEntry[]): ExpenseCategory[] => {
+  // Bouw hiërarchische structuur van inkomsten
+  const buildHierarchicalRevenue = (accounts: GLAccount[], entries: RevenueEntry[]): RevenueCategory[] => {
     // Maak een kaart van accounts op code
     const accountMap = new Map<string, GLAccount>();
     accounts.forEach(account => {
       accountMap.set(account.code, account);
     });
     
-    // Bereken geplande bedragen voor elke rekening
+    // Bereken actuele bedragen voor elke rekening
     const categorySums = new Map<string, number>();
     entries.forEach(entry => {
       const account = entry.gl_account;
@@ -200,18 +201,18 @@ export default function BudgetExpensesPage() {
     const level1Categories = accounts.filter(acc => acc.level === 1);
     
     // Bouw de hiërarchie
-    const buildCategory = (account: GLAccount): ExpenseCategory => {
+    const buildCategory = (account: GLAccount): RevenueCategory => {
       // Vind subcategorieën
       const subcategories = accounts
         .filter(acc => acc.level === account.level + 1 && acc.code.startsWith(account.code))
         .map(buildCategory);
       
-      const planned = categorySums.get(account.code) || 0;
+      const actual = categorySums.get(account.code) || 0;
       
       return {
         code: account.code,
         name: account.name,
-        planned,
+        actual,
         subcategories: subcategories.length > 0 ? subcategories : undefined,
         level: account.level,
         gl_account_id: account.id
@@ -248,26 +249,34 @@ export default function BudgetExpensesPage() {
   // Event handlers
   const handlePeriodChange = (newPeriod: Period) => {
     setPeriod(newPeriod);
-    router.push(`/budget/expenses?year=${year}&month=${month}&period=${newPeriod}`);
+    router.push(`/actual/revenue?year=${year}&month=${month}&period=${newPeriod}`);
   };
   
   const handleDateChange = (newYear: number, newMonth: number) => {
     setYear(newYear);
     setMonth(newMonth);
-    router.push(`/budget/expenses?year=${newYear}&month=${newMonth}&period=${period}`);
+    router.push(`/actual/revenue?year=${newYear}&month=${newMonth}&period=${period}`);
   };
   
-  const handleAddExpense = async (data: BudgetEntry) => {
+  const handleAddRevenue = async (data: RevenueEntry) => {
     try {
       const { data: result, error } = await supabase
         .from('budget_entries')
         .insert([{
           gl_account_id: data.gl_account_id,
-          type: 'Planned',
+          type: 'Actual',
           year: data.year,
           month: data.month,
           amount: data.amount,
-          description: data.description
+          description: data.description,
+          product_id: data.product_id,
+          client_name: data.client_name,
+          project_name: data.project_name,
+          number_of_users: data.number_of_users,
+          hours: data.hours,
+          start_date: data.start_date,
+          end_date: data.end_date,
+          hourly_rate: data.hourly_rate
         }])
         .select('*, gl_account:gl_account_id(*)');
       
@@ -275,28 +284,34 @@ export default function BudgetExpensesPage() {
       
       // Update lokale state
       if (result) {
-        setBudgetEntries([...budgetEntries, ...result]);
+        setRevenueEntries([...revenueEntries, ...result]);
         
         // Hiërarchie opnieuw opbouwen
-        const hierarchical = buildHierarchicalExpenses(glAccounts, [...budgetEntries, ...result]);
-        setHierarchicalExpenses(hierarchical);
+        const hierarchical = buildHierarchicalRevenue(glAccounts, [...revenueEntries, ...result]);
+        setHierarchicalRevenue(hierarchical);
       }
       
       setShowForm(false);
       setEditingEntry(null);
       
     } catch (err) {
-      console.error('Fout bij toevoegen uitgave:', err);
-      setError(err instanceof Error ? err.message : 'Fout bij toevoegen uitgave');
+      console.error('Fout bij toevoegen inkomsten:', err);
+      setError(err instanceof Error ? err.message : 'Fout bij toevoegen inkomsten');
     }
   };
   
-  const handleEditExpense = (entry: BudgetEntry) => {
+  const handleEditRevenue = (entry: RevenueEntry) => {
     setEditingEntry(entry);
+    // Bepaal het type inkomsten (saas of consultancy) op basis van de GL rekening
+    if (entry.gl_account?.code.startsWith('10')) {
+      setRevenueType('saas');
+    } else if (entry.gl_account?.code.startsWith('11')) {
+      setRevenueType('consultancy');
+    }
     setShowForm(true);
   };
   
-  const handleUpdateExpense = async (data: BudgetEntry) => {
+  const handleUpdateRevenue = async (data: RevenueEntry) => {
     if (!editingEntry?.id) return;
     
     try {
@@ -307,37 +322,45 @@ export default function BudgetExpensesPage() {
           year: data.year,
           month: data.month,
           amount: data.amount,
-          description: data.description
+          description: data.description,
+          product_id: data.product_id,
+          client_name: data.client_name,
+          project_name: data.project_name,
+          number_of_users: data.number_of_users,
+          hours: data.hours,
+          start_date: data.start_date,
+          end_date: data.end_date,
+          hourly_rate: data.hourly_rate
         })
-        .eq('id', data.id!)
+        .eq('id', editingEntry.id)
         .select('*, gl_account:gl_account_id(*)');
       
       if (error) throw error;
       
       // Update lokale state
       if (result) {
-        const updatedEntries = budgetEntries.map(entry => 
+        const updatedEntries = revenueEntries.map(entry => 
           entry.id === editingEntry.id ? result[0] : entry
         );
         
-        setBudgetEntries(updatedEntries);
+        setRevenueEntries(updatedEntries);
         
         // Hiërarchie opnieuw opbouwen
-        const hierarchical = buildHierarchicalExpenses(glAccounts, updatedEntries);
-        setHierarchicalExpenses(hierarchical);
+        const hierarchical = buildHierarchicalRevenue(glAccounts, updatedEntries);
+        setHierarchicalRevenue(hierarchical);
       }
       
       setShowForm(false);
       setEditingEntry(null);
       
     } catch (err) {
-      console.error('Fout bij bijwerken uitgave:', err);
-      setError(err instanceof Error ? err.message : 'Fout bij bijwerken uitgave');
+      console.error('Fout bij bijwerken inkomsten:', err);
+      setError(err instanceof Error ? err.message : 'Fout bij bijwerken inkomsten');
     }
   };
   
-  const handleDeleteExpense = async (entryId: string) => {
-    if (!window.confirm('Weet je zeker dat je deze uitgave wilt verwijderen?')) return;
+  const handleDeleteRevenue = async (entryId: string) => {
+    if (!window.confirm('Weet je zeker dat je deze inkomsten wilt verwijderen?')) return;
     
     try {
       const { error } = await supabase
@@ -348,21 +371,21 @@ export default function BudgetExpensesPage() {
       if (error) throw error;
       
       // Update lokale state
-      const updatedEntries = budgetEntries.filter(entry => entry.id !== entryId);
-      setBudgetEntries(updatedEntries);
+      const updatedEntries = revenueEntries.filter(entry => entry.id !== entryId);
+      setRevenueEntries(updatedEntries);
       
       // Hiërarchie opnieuw opbouwen
-      const hierarchical = buildHierarchicalExpenses(glAccounts, updatedEntries);
-      setHierarchicalExpenses(hierarchical);
+      const hierarchical = buildHierarchicalRevenue(glAccounts, updatedEntries);
+      setHierarchicalRevenue(hierarchical);
       
     } catch (err) {
-      console.error('Fout bij verwijderen uitgave:', err);
-      setError(err instanceof Error ? err.message : 'Fout bij verwijderen uitgave');
+      console.error('Fout bij verwijderen inkomsten:', err);
+      setError(err instanceof Error ? err.message : 'Fout bij verwijderen inkomsten');
     }
   };
   
   // Hulpfunctie om de entries te vinden bij een specifieke GL rekening code
-  const findEntriesForGLCode = (code: string): BudgetEntry[] => {
+  const findEntriesForGLCode = (code: string): RevenueEntry[] => {
     // Filter op exacte code of op codes die beginnen met deze code (voor subcategorieën)
     const accounts = glAccounts.filter(acc => 
       acc.code === code || (acc.level > 1 && acc.code.startsWith(code))
@@ -370,12 +393,12 @@ export default function BudgetExpensesPage() {
     
     const accountIds = accounts.map(acc => acc.id);
     
-    return budgetEntries.filter(entry => accountIds.includes(entry.gl_account_id));
+    return revenueEntries.filter(entry => accountIds.includes(entry.gl_account_id));
   };
   
   // Rendercomponent voor een categorie rij
   const renderCategoryRow = (
-    category: ExpenseCategory, 
+    category: RevenueCategory, 
     depth: number = 0,
     isLastInGroup: boolean = false
   ) => {
@@ -409,7 +432,7 @@ export default function BudgetExpensesPage() {
             </div>
           </td>
           <td className="py-2 px-4 text-right font-medium">
-            {formatCurrency(category.planned)}
+            {formatCurrency(category.actual)}
           </td>
           <td className="py-2 px-4 text-center">
             {category.level === 3 && (
@@ -417,12 +440,20 @@ export default function BudgetExpensesPage() {
                 onClick={() => {
                   setEditingEntry({
                     gl_account_id: category.gl_account_id || '',
-                    type: 'Planned',
+                    type: 'Actual',
                     year: year,
                     month: month,
                     amount: 0,
                     description: category.name
                   });
+                  
+                  // Bepaal het type inkomsten op basis van de GL rekening code
+                  if (category.code.startsWith('10')) {
+                    setRevenueType('saas');
+                  } else if (category.code.startsWith('11')) {
+                    setRevenueType('consultancy');
+                  }
+                  
                   setShowForm(true);
                 }}
                 className="text-indigo-600 hover:text-indigo-900"
@@ -447,7 +478,11 @@ export default function BudgetExpensesPage() {
           <tr key={entry.id} className="bg-gray-50 text-gray-600 hover:bg-gray-100">
             <td className={`py-2 pl-${depth * 6 + 10}`}>
               <div className="flex items-center">
-                <span className="text-sm italic">{entry.description || 'Geen omschrijving'}</span>
+                <span className="text-sm italic">
+                  {entry.client_name && entry.project_name ? 
+                    `${entry.client_name} - ${entry.project_name}` : 
+                    entry.description || 'Geen omschrijving'}
+                </span>
               </div>
             </td>
             <td className="py-2 px-4 text-right text-sm">
@@ -456,13 +491,13 @@ export default function BudgetExpensesPage() {
             <td className="py-2 px-4 text-center">
               <div className="flex justify-center space-x-2">
                 <button
-                  onClick={() => handleEditExpense(entry)}
+                  onClick={() => handleEditRevenue(entry)}
                   className="text-indigo-600 hover:text-indigo-900"
                 >
                   <PencilIcon className="h-4 w-4" />
                 </button>
                 <button
-                  onClick={() => entry.id && handleDeleteExpense(entry.id)}
+                  onClick={() => entry.id && handleDeleteRevenue(entry.id)}
                   className="text-red-600 hover:text-red-900"
                 >
                   <TrashIcon className="h-4 w-4" />
@@ -500,13 +535,13 @@ export default function BudgetExpensesPage() {
     );
   }
   
-  // Bereken totaal van alle uitgaven
-  const totalExpenses = hierarchicalExpenses.reduce((total, category) => total + category.planned, 0);
+  // Bereken totaal van alle inkomsten
+  const totalRevenue = hierarchicalRevenue.reduce((total, category) => total + category.actual, 0);
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 space-y-4 md:space-y-0">
-        <h1 className="text-2xl font-bold text-gray-900">Begroting - Uitgaven</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Actueel - Inkomsten</h1>
         
         <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
           <PeriodSelector 
@@ -521,17 +556,40 @@ export default function BudgetExpensesPage() {
       
       <div className="bg-white shadow rounded-lg mb-8">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-lg font-medium text-gray-900">Geplande uitgaven</h2>
+          <h2 className="text-lg font-medium text-gray-900">Actuele inkomsten</h2>
           <div className="flex space-x-2">
-            <button
-              onClick={() => {
-                setEditingEntry(null);
-                setShowForm(!showForm);
-              }}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              {showForm ? 'Annuleren' : <><PlusIcon className="h-4 w-4 mr-1" /> Toevoegen</>}
-            </button>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => {
+                  setRevenueType('saas');
+                  setEditingEntry(null);
+                  setShowForm(!showForm);
+                }}
+                className={`inline-flex items-center px-3 py-2 border text-sm leading-4 font-medium rounded-md ${
+                  showForm && revenueType === 'saas' 
+                    ? 'border-indigo-500 text-indigo-700 bg-indigo-50' 
+                    : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
+                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+              >
+                {!showForm && <PlusIcon className="h-4 w-4 mr-1" />} SaaS Inkomsten
+              </button>
+              
+              <button
+                onClick={() => {
+                  setRevenueType('consultancy');
+                  setEditingEntry(null);
+                  setShowForm(!showForm);
+                }}
+                className={`inline-flex items-center px-3 py-2 border text-sm leading-4 font-medium rounded-md ${
+                  showForm && revenueType === 'consultancy' 
+                    ? 'border-indigo-500 text-indigo-700 bg-indigo-50' 
+                    : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
+                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+              >
+                {!showForm && <PlusIcon className="h-4 w-4 mr-1" />} Consultancy Inkomsten
+              </button>
+            </div>
+            
             <button
               onClick={() => window.location.reload()}
               className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
@@ -543,44 +601,27 @@ export default function BudgetExpensesPage() {
         </div>
         
         {showForm && (
-          <div className="mb-6 bg-white shadow rounded-lg">
-            <div className="px-4 py-5 border-b border-gray-200 sm:px-6">
-              <h3 className="text-lg leading-6 font-medium text-gray-900">
-                {editingEntry ? 'Uitgave Bewerken' : 'Nieuwe Uitgave Toevoegen'}
-              </h3>
-            </div>
-            <div className="p-6">
-              <div className="mb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    console.log('Huidige glAccounts:', glAccounts);
-                    console.log('Aantal accounts:', glAccounts.length);
-                    console.log('Niveau 3 accounts:', glAccounts.filter(acc => acc.level === 3).length);
-                    console.log('Type expense accounts:', glAccounts.filter(acc => acc.type === 'expense').length);
-                    console.log('Niveau 3 & type expense:', glAccounts.filter(acc => acc.level === 3 && acc.type === 'expense').length);
-                    alert(`Accounts geladen: ${glAccounts.length}\nNiveau 3 accounts: ${glAccounts.filter(acc => acc.level === 3).length}\nType expense: ${glAccounts.filter(acc => acc.type === 'expense').length}\nNiveau 3 & expense: ${glAccounts.filter(acc => acc.level === 3 && acc.type === 'expense').length}`);
-                  }}
-                  className="px-2 py-1 bg-gray-100 text-xs text-gray-500 rounded hover:bg-gray-200"
-                >
-                  Debug GL Accounts
-                </button>
-              </div>
-              <ExpenseForm 
-                glAccounts={glAccounts}
-                currentYear={year}
-                currentMonth={month}
-                editEntry={editingEntry}
-                onSubmit={(data) => {
-                  const submitData = {...data, type: 'Planned' as const};
-                  editingEntry ? handleUpdateExpense(submitData) : handleAddExpense(submitData);
-                }}
-                onCancel={() => {
-                  setShowForm(false);
-                  setEditingEntry(null);
-                }}
-              />
-            </div>
+          <div className="p-6 border-b border-gray-200 bg-gray-50">
+            <h3 className="text-md font-medium text-gray-900 mb-4">
+              {editingEntry?.id ? 'Inkomsten bewerken' : `Nieuwe ${revenueType === 'saas' ? 'SaaS' : 'Consultancy'} inkomsten toevoegen`}
+            </h3>
+            <RevenueForm 
+              type={revenueType}
+              products={products}
+              glAccounts={glAccounts.filter(acc => 
+                revenueType === 'saas' 
+                  ? acc.code.startsWith('10') // SaaS rekeningen
+                  : acc.code.startsWith('11') // Consultancy rekeningen
+              )}
+              currentYear={year}
+              currentMonth={month}
+              editEntry={editingEntry}
+              onSubmit={editingEntry?.id ? handleUpdateRevenue : handleAddRevenue}
+              onCancel={() => {
+                setShowForm(false);
+                setEditingEntry(null);
+              }}
+            />
           </div>
         )}
         
@@ -600,16 +641,16 @@ export default function BudgetExpensesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {hierarchicalExpenses.map((category, index) => 
+              {hierarchicalRevenue.map((category, index) => 
                 renderCategoryRow(
                   category, 
                   0, 
-                  index === hierarchicalExpenses.length - 1
+                  index === hierarchicalRevenue.length - 1
                 )
               )}
               <tr className="bg-gray-100 font-bold">
-                <td className="px-4 py-3 text-gray-900">Totaal Uitgaven</td>
-                <td className="px-4 py-3 text-right text-gray-900">{formatCurrency(totalExpenses)}</td>
+                <td className="px-4 py-3 text-gray-900">Totaal Inkomsten</td>
+                <td className="px-4 py-3 text-right text-gray-900">{formatCurrency(totalRevenue)}</td>
                 <td></td>
               </tr>
             </tbody>

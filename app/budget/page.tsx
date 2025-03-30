@@ -98,7 +98,7 @@ export default function BudgetOverviewPage() {
       // Fetch budget entries
       const { data: entriesData, error: entriesError } = await supabase
         .from('budget_entries')
-        .select('*, gl_accounts(*)')
+        .select('*, gl_account:gl_account_id(*)')
         .eq('organization_id', organizationId)
         .eq('year', selectedYear)
         .eq('type', 'expense');

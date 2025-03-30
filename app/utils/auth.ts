@@ -247,4 +247,107 @@ export async function ensureClientUserProfile(userId: string): Promise<void> {
     console.error('Error ensuring user profile:', error instanceof Error ? error.message : String(error));
     throw error; // Re-throw to allow calling function to handle the error
   }
+}
+
+// Functie om te controleren of de huidige gebruiker is ingelogd
+export async function isUserLoggedIn() {
+  try {
+    const supabase = createClientComponentClient();
+    
+    // Gebruik getUser in plaats van getSession voor betere beveiliging
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError) {
+      console.error('Auth check error:', userError);
+      return false;
+    }
+    
+    return !!user;
+  } catch (err) {
+    console.error('Auth check error:', err);
+    return false;
+  }
+}
+
+// Functie om de huidige gebruiker op te halen
+export async function getCurrentUser() {
+  try {
+    const supabase = createClientComponentClient();
+    
+    // Gebruik getUser in plaats van getSession voor betere beveiliging
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError) {
+      console.error('Get user error:', userError);
+      return null;
+    }
+    
+    return user;
+  } catch (err) {
+    console.error('Get user error:', err);
+    return null;
+  }
+}
+
+// Functie om in te loggen met email en wachtwoord
+export async function signInWithEmail(email: string, password: string) {
+  try {
+    const supabase = createClientComponentClient();
+    
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    if (error) {
+      console.error('Sign in error:', error);
+      return { success: false, error: error.message };
+    }
+    
+    return { success: true, data };
+  } catch (err) {
+    console.error('Sign in error:', err);
+    return { success: false, error: 'Er is een fout opgetreden tijdens het inloggen.' };
+  }
+}
+
+// Functie om een account aan te maken met email en wachtwoord
+export async function signUpWithEmail(email: string, password: string) {
+  try {
+    const supabase = createClientComponentClient();
+    
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+    
+    if (error) {
+      console.error('Sign up error:', error);
+      return { success: false, error: error.message };
+    }
+    
+    return { success: true, data };
+  } catch (err) {
+    console.error('Sign up error:', err);
+    return { success: false, error: 'Er is een fout opgetreden tijdens het registreren.' };
+  }
+}
+
+// Functie om uit te loggen
+export async function signOut() {
+  try {
+    const supabase = createClientComponentClient();
+    
+    const { error } = await supabase.auth.signOut();
+    
+    if (error) {
+      console.error('Sign out error:', error);
+      return { success: false, error: error.message };
+    }
+    
+    return { success: true };
+  } catch (err) {
+    console.error('Sign out error:', err);
+    return { success: false, error: 'Er is een fout opgetreden tijdens het uitloggen.' };
+  }
 } 
