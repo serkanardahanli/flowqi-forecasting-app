@@ -16,7 +16,6 @@ import {
   CardHeader,
   CardTitle
 } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import { Chart } from '@/components/Chart';
 
 export default function ForecastsPage() {
@@ -149,9 +148,14 @@ export default function ForecastsPage() {
                 <span>Personeelskosten: {kpis.personnelPercentage}%</span>
                 <span>Target: max 40%</span>
               </div>
-              <Progress value={kpis.personnelPercentage} max={50} 
-                className={kpis.personnelPercentage <= 40 ? "bg-green-100" : "bg-red-100"}
-              />
+              <div 
+                className={`w-full h-2 rounded-full overflow-hidden ${kpis.personnelPercentage <= 40 ? "bg-green-100" : "bg-red-100"}`}
+              >
+                <div 
+                  className="h-full bg-blue-500" 
+                  style={{ width: `${kpis.personnelPercentage}%` }}
+                ></div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -166,14 +170,24 @@ export default function ForecastsPage() {
                 <span>Marketing: €{(kpis.marketingSpent/1000).toFixed(0)}K</span>
                 <span>Target: €{(kpis.marketingTarget/1000).toFixed(0)}K {getStatusIndicator(kpis.marketingSpent, kpis.marketingTarget)}</span>
               </div>
-              <Progress value={(kpis.marketingSpent/kpis.marketingTarget)*100} className="h-2" />
+              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-blue-500" 
+                  style={{ width: `${(kpis.marketingSpent/kpis.marketingTarget)*100}%` }}
+                ></div>
+              </div>
             </div>
             <div className="mb-1">
               <div className="flex justify-between text-xs text-gray-700 mb-1">
                 <span>R&D: {kpis.rdPercentage}%</span>
                 <span>Target: 15% {getStatusIndicator(kpis.rdPercentage, 15)}</span>
               </div>
-              <Progress value={kpis.rdPercentage} max={20} className="h-2" />
+              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-blue-500" 
+                  style={{ width: `${kpis.rdPercentage/20*100}%` }}
+                ></div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -430,7 +444,12 @@ export default function ForecastsPage() {
                         <span>SaaS Omzet %</span>
                         <span>38% / 40%</span>
                       </div>
-                      <Progress value={38} max={40} className="h-2" />
+                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500" 
+                          style={{ width: `${kpis.saasPercentage}%` }}
+                        ></div>
+                      </div>
                     </div>
                     
                     <div>
@@ -438,7 +457,12 @@ export default function ForecastsPage() {
                         <span>Gemiddelde uurprijs Consultancy</span>
                         <span>€95 / €100</span>
                       </div>
-                      <Progress value={95} max={100} className="h-2" />
+                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500" 
+                          style={{ width: `${kpis.rdPercentage/20*100}%` }}
+                        ></div>
+                      </div>
                     </div>
                     
                     <div>
@@ -446,7 +470,12 @@ export default function ForecastsPage() {
                         <span>Recurring Revenue %</span>
                         <span>45% / 50%</span>
                       </div>
-                      <Progress value={45} max={50} className="h-2" />
+                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500" 
+                          style={{ width: `${(kpis.marketingSpent/kpis.marketingTarget)*100}%` }}
+                        ></div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -460,7 +489,14 @@ export default function ForecastsPage() {
                         <span>Personeelskosten %</span>
                         <span>39% / 40%</span>
                       </div>
-                      <Progress value={39} max={40} className="h-2 bg-green-100" />
+                      <div 
+                        className={`w-full h-2 rounded-full overflow-hidden ${kpis.personnelPercentage <= 40 ? "bg-green-100" : "bg-red-100"}`}
+                      >
+                        <div 
+                          className="h-full bg-blue-500" 
+                          style={{ width: `${kpis.personnelPercentage}%` }}
+                        ></div>
+                      </div>
                     </div>
                     
                     <div>
@@ -468,7 +504,12 @@ export default function ForecastsPage() {
                         <span>R&D Investering %</span>
                         <span>14% / 15%</span>
                       </div>
-                      <Progress value={14} max={15} className="h-2 bg-yellow-100" />
+                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500" 
+                          style={{ width: `${kpis.rdPercentage/20*100}%` }}
+                        ></div>
+                      </div>
                     </div>
                     
                     <div>
@@ -476,7 +517,12 @@ export default function ForecastsPage() {
                         <span>Marketing Budget Gebruik</span>
                         <span>€75K / €80K</span>
                       </div>
-                      <Progress value={75} max={80} className="h-2" />
+                      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-blue-500" 
+                          style={{ width: `${(kpis.marketingSpent/kpis.marketingTarget)*100}%` }}
+                        ></div>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -9,8 +9,6 @@ import PeriodSelector, { Period } from '@/app/components/dashboard/PeriodSelecto
 import { formatCurrency } from '@/lib/utils';
 import ExpenseForm from '@/app/components/budget/ExpenseForm';
 
-console.log('Expense page loading - budget/expenses/page.tsx');
-
 // Definieer interface voor GL Account
 interface GLAccount {
   id: string;
@@ -38,14 +36,14 @@ interface BudgetEntry {
 interface ExpenseCategory {
   code: string;
   name: string;
-  planned: number;
-  actual?: number;
+  actual: number;
+  planned?: number;
   subcategories?: ExpenseCategory[];
   level: number;
   gl_account_id?: string;
 }
 
-export default function BudgetExpensesPage() {
+export default function ActualExpensesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const yearParam = searchParams?.get('year');
@@ -126,24 +124,19 @@ export default function BudgetExpensesPage() {
           .eq('organization_id', organizationId)
           .eq('type', 'expense');
         
-        if (glAccountsError) {
-          console.error('Error fetching GL accounts:', glAccountsError);
-          throw new Error('Error fetching GL accounts: ' + glAccountsError.message);
-        }
+        if (glAccountsError) throw new Error('Error fetching GL accounts: ' + glAccountsError.message);
         
-        console.log('Raw GL accounts response:', glAccountsData);
-        console.log('Sample GL account (first one):', glAccountsData && glAccountsData.length > 0 ? glAccountsData[0] : 'No accounts found');
-        console.log('Opgehaalde GL rekeningen:', glAccountsData);
-        console.log('Aantal GL rekeningen:', glAccountsData?.length || 0);
-        console.log('GL rekeningen niveau 3:', glAccountsData?.filter(acc => acc.level === 3).length || 0);
+        console.log('Actual Expenses - Opgehaalde GL rekeningen:', glAccountsData);
+        console.log('Actual Expenses - Aantal GL rekeningen:', glAccountsData?.length || 0);
+        console.log('Actual Expenses - GL rekeningen niveau 3:', glAccountsData?.filter(acc => acc.level === 3).length || 0);
         
-        // Budget entries ophalen
+        // Actual entries ophalen
         let expensesQuery = supabase
-          .from('budget_entries')
+          .from('actual_entries')
           .select('*, gl_account:gl_account_id(*)')
           .eq('organization_id', organizationId)
           .eq('year', year)
-          .eq('type', 'Planned');
+          .eq('type', 'Actual');
         
         if (period === 'month') {
           expensesQuery = expensesQuery.eq('month', month);
@@ -153,7 +146,7 @@ export default function BudgetExpensesPage() {
         
         const { data: entriesData, error: entriesError } = await expensesQuery;
         
-        if (entriesError) throw new Error('Error fetching budget entries: ' + entriesError.message);
+        if (entriesError) throw new Error('Error fetching actual entries: ' + entriesError.message);
         
         setGLAccounts(glAccountsData || []);
         setBudgetEntries(entriesData || []);
@@ -186,7 +179,7 @@ export default function BudgetExpensesPage() {
       accountMap.set(account.code, account);
     });
     
-    // Bereken geplande bedragen voor elke rekening
+    // Bereken actuele bedragen voor elke rekening
     const categorySums = new Map<string, number>();
     entries.forEach(entry => {
       const account = entry.gl_account;
@@ -206,12 +199,12 @@ export default function BudgetExpensesPage() {
         .filter(acc => acc.level === account.level + 1 && acc.code.startsWith(account.code))
         .map(buildCategory);
       
-      const planned = categorySums.get(account.code) || 0;
+      const actual = categorySums.get(account.code) || 0;
       
       return {
         code: account.code,
         name: account.name,
-        planned,
+        actual,
         subcategories: subcategories.length > 0 ? subcategories : undefined,
         level: account.level,
         gl_account_id: account.id
@@ -248,13 +241,13 @@ export default function BudgetExpensesPage() {
   // Event handlers
   const handlePeriodChange = (newPeriod: Period) => {
     setPeriod(newPeriod);
-    router.push(`/budget/expenses?year=${year}&month=${month}&period=${newPeriod}`);
+    router.push(`/actual/expenses?year=${year}&month=${month}&period=${newPeriod}`);
   };
   
   const handleDateChange = (newYear: number, newMonth: number) => {
     setYear(newYear);
     setMonth(newMonth);
-    router.push(`/budget/expenses?year=${newYear}&month=${newMonth}&period=${period}`);
+    router.push(`/actual/expenses?year=${newYear}&month=${newMonth}&period=${period}`);
   };
   
   const handleAddExpense = async (data: BudgetEntry) => {
@@ -263,7 +256,7 @@ export default function BudgetExpensesPage() {
         .from('budget_entries')
         .insert([{
           gl_account_id: data.gl_account_id,
-          type: 'Planned',
+          type: 'Actual',
           year: data.year,
           month: data.month,
           amount: data.amount,
@@ -309,7 +302,7 @@ export default function BudgetExpensesPage() {
           amount: data.amount,
           description: data.description
         })
-        .eq('id', data.id!)
+        .eq('id', editingEntry.id)
         .select('*, gl_account:gl_account_id(*)');
       
       if (error) throw error;
@@ -409,7 +402,7 @@ export default function BudgetExpensesPage() {
             </div>
           </td>
           <td className="py-2 px-4 text-right font-medium">
-            {formatCurrency(category.planned)}
+            {formatCurrency(category.actual)}
           </td>
           <td className="py-2 px-4 text-center">
             {category.level === 3 && (
@@ -417,7 +410,7 @@ export default function BudgetExpensesPage() {
                 onClick={() => {
                   setEditingEntry({
                     gl_account_id: category.gl_account_id || '',
-                    type: 'Planned',
+                    type: 'Actual',
                     year: year,
                     month: month,
                     amount: 0,
@@ -501,12 +494,12 @@ export default function BudgetExpensesPage() {
   }
   
   // Bereken totaal van alle uitgaven
-  const totalExpenses = hierarchicalExpenses.reduce((total, category) => total + category.planned, 0);
+  const totalExpenses = hierarchicalExpenses.reduce((total, category) => total + category.actual, 0);
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 space-y-4 md:space-y-0">
-        <h1 className="text-2xl font-bold text-gray-900">Begroting - Uitgaven</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Actueel - Uitgaven</h1>
         
         <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
           <PeriodSelector 
@@ -521,7 +514,7 @@ export default function BudgetExpensesPage() {
       
       <div className="bg-white shadow rounded-lg mb-8">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-lg font-medium text-gray-900">Geplande uitgaven</h2>
+          <h2 className="text-lg font-medium text-gray-900">Actuele uitgaven</h2>
           <div className="flex space-x-2">
             <button
               onClick={() => {
@@ -554,11 +547,11 @@ export default function BudgetExpensesPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    console.log('Huidige glAccounts:', glAccounts);
-                    console.log('Aantal accounts:', glAccounts.length);
-                    console.log('Niveau 3 accounts:', glAccounts.filter(acc => acc.level === 3).length);
-                    console.log('Type expense accounts:', glAccounts.filter(acc => acc.type === 'expense').length);
-                    console.log('Niveau 3 & type expense:', glAccounts.filter(acc => acc.level === 3 && acc.type === 'expense').length);
+                    console.log('Actual Page - Huidige glAccounts:', glAccounts);
+                    console.log('Actual Page - Aantal accounts:', glAccounts.length);
+                    console.log('Actual Page - Niveau 3 accounts:', glAccounts.filter(acc => acc.level === 3).length);
+                    console.log('Actual Page - Type expense accounts:', glAccounts.filter(acc => acc.type === 'expense').length);
+                    console.log('Actual Page - Niveau 3 & type expense:', glAccounts.filter(acc => acc.level === 3 && acc.type === 'expense').length);
                     alert(`Accounts geladen: ${glAccounts.length}\nNiveau 3 accounts: ${glAccounts.filter(acc => acc.level === 3).length}\nType expense: ${glAccounts.filter(acc => acc.type === 'expense').length}\nNiveau 3 & expense: ${glAccounts.filter(acc => acc.level === 3 && acc.type === 'expense').length}`);
                   }}
                   className="px-2 py-1 bg-gray-100 text-xs text-gray-500 rounded hover:bg-gray-200"
@@ -571,10 +564,7 @@ export default function BudgetExpensesPage() {
                 currentYear={year}
                 currentMonth={month}
                 editEntry={editingEntry}
-                onSubmit={(data) => {
-                  const submitData = {...data, type: 'Planned' as const};
-                  editingEntry ? handleUpdateExpense(submitData) : handleAddExpense(submitData);
-                }}
+                onSubmit={editingEntry ? handleUpdateExpense : handleAddExpense}
                 onCancel={() => {
                   setShowForm(false);
                   setEditingEntry(null);

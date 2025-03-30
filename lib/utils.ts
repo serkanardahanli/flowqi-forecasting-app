@@ -67,4 +67,68 @@ export function getMonthOptions(): { value: number; label: string }[] {
     const month = i + 1;
     return { value: month, label: getMonthName(month) };
   });
-} 
+}
+
+/**
+ * Format een getal als percentage
+ */
+export const formatPercentage = (value: number): string => {
+  return new Intl.NumberFormat('nl-NL', {
+    style: 'percent',
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1
+  }).format(value / 100);
+};
+
+/**
+ * Berekent het verschil tussen twee waarden en retourneert een percentage
+ */
+export const calculateVariance = (actual: number, planned: number): number => {
+  if (planned === 0) return actual > 0 ? 100 : 0;
+  return Math.round(((actual - planned) / Math.abs(planned)) * 100);
+};
+
+/**
+ * Bepaal kleur op basis van variantie en type (inkomsten of uitgaven)
+ */
+export const getVarianceColor = (variance: number, isExpense: boolean = false): string => {
+  // Voor inkomsten: positieve variantie is goed (groen), negatieve is slecht (rood)
+  // Voor uitgaven: negatieve variantie is goed (groen), positieve is slecht (rood)
+  if (isExpense) {
+    if (variance <= -10) return 'text-green-500';
+    if (variance < 0) return 'text-green-400';
+    if (variance === 0) return 'text-gray-500';
+    if (variance <= 10) return 'text-amber-500';
+    return 'text-red-500';
+  } else {
+    if (variance >= 10) return 'text-green-500';
+    if (variance > 0) return 'text-green-400';
+    if (variance === 0) return 'text-gray-500';
+    if (variance >= -10) return 'text-amber-500';
+    return 'text-red-500';
+  }
+};
+
+/**
+ * Helper functie om periode naam te genereren
+ */
+export const getPeriodName = (period: string, year: number, month: number): string => {
+  const monthNames = [
+    'Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni',
+    'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'
+  ];
+  
+  switch (period) {
+    case 'month':
+      return `${monthNames[month - 1]} ${year}`;
+    case 'quarter':
+      const quarter = Math.ceil(month / 3);
+      return `Q${quarter} ${year}`;
+    case 'half-year':
+      return month <= 6 ? `H1 ${year}` : `H2 ${year}`;
+    case 'year':
+      return `Jaar ${year}`;
+    default:
+      return `${monthNames[month - 1]} ${year}`;
+  }
+}; 

@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import { PlusIcon, ShoppingBagIcon } from '@heroicons/react/24/outline';
-import Layout from '@/app/components/Layout';
 
 type Product = {
   id: string;
@@ -96,7 +95,7 @@ export default function ProductsPage() {
   }, []);
 
   return (
-    <Layout>
+    <>
       {loading ? (
         <div className="p-6 flex items-center justify-center min-h-[400px]">
           <div className="flex flex-col items-center">
@@ -161,6 +160,6 @@ export default function ProductsPage() {
           )}
         </div>
       )}
-    </Layout>
+    </>
   );
 } 

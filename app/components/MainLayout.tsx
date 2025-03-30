@@ -14,6 +14,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const handleSignOut = async () => {
     const supabase = getBrowserSupabaseClient();
@@ -49,47 +50,56 @@ export default function MainLayout({ children }: MainLayoutProps) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <span className="text-white font-bold text-lg">FlowQi</span>
-              </div>
-              <div className="hidden md:block">
-                <div className="ml-10 flex items-baseline space-x-4">
-                  {navigationItems.map((item) => 
-                    item.children ? (
-                      <div key={item.name} className="relative group">
-                        <button className="text-gray-300 hover:bg-[#3B3B7C] hover:text-white px-3 py-2 rounded-md text-sm font-medium group">
-                          {item.name}
-                          <svg className="w-5 h-5 ml-1 inline-block" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                        <div className="hidden group-hover:block absolute left-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 z-10">
-                          {item.children.map(child => (
-                            <a
-                              key={child.name}
-                              href={child.href}
-                              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                            >
-                              {child.name}
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <a
-                        key={item.name}
-                        href={item.href}
-                        className={`${
-                          pathname === item.href
-                            ? 'bg-[#3B3B7C] text-white'
-                            : 'text-gray-300 hover:bg-[#3B3B7C] hover:text-white'
-                        } px-3 py-2 rounded-md text-sm font-medium`}
-                      >
-                        {item.name}
-                      </a>
-                    )
-                  )}
-                </div>
+              <div className="flex-shrink-0 relative">
+                <button 
+                  onClick={() => setDropdownOpen(!dropdownOpen)}
+                  className="text-white font-bold text-lg flex items-center"
+                >
+                  <span>FlowQi</span>
+                  <svg className="w-5 h-5 ml-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+
+                {/* Desktop dropdown menu */}
+                {dropdownOpen && (
+                  <div className="absolute left-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-20">
+                    <div className="py-1" role="menu" aria-orientation="vertical">
+                      {navigationItems.map((item) => 
+                        item.children ? (
+                          <div key={item.name} className="relative group">
+                            <button className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 focus:outline-none">
+                              {item.name}
+                            </button>
+                            <div className="absolute left-full mt-0 top-0 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 z-10 hidden group-hover:block">
+                              {item.children.map(child => (
+                                <a
+                                  key={child.name}
+                                  href={child.href}
+                                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                >
+                                  {child.name}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <a
+                            key={item.name}
+                            href={item.href}
+                            className={`block px-4 py-2 text-sm ${
+                              pathname === item.href
+                                ? 'bg-gray-100 text-gray-900'
+                                : 'text-gray-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            {item.name}
+                          </a>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <div className="hidden md:block">
