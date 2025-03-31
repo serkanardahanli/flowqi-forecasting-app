@@ -13,16 +13,13 @@ import {
   CalculatorIcon,
   BookOpenIcon
 } from '@heroicons/react/24/outline';
-import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 
 export default function Navigation() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const handleSignOut = async () => {
-    const supabase = getBrowserSupabaseClient();
-    await supabase.auth.signOut();
-    router.push('/auth/signin');
+  const handleSignOut = () => {
+    router.push('/');
   };
 
   const navigation = [
@@ -45,7 +42,7 @@ export default function Navigation() {
       </div>
       <nav className="mt-5 px-2 space-y-1">
         {navigation.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isActive = pathname === item.href || (pathname && pathname.startsWith(`${item.href}/`));
           return (
             <Link
               key={item.name}

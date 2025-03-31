@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
 import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Database } from '@/types/supabase';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
+import type { Database } from '@/types/supabase';
 import { GlAccount } from '@/types/models';
 import { formatCurrency, getMonthName } from '@/lib/utils';
 import BudgetKPICards from '@/app/components/budget/BudgetKPICards';
@@ -11,6 +11,7 @@ import BudgetMonthlyChart from '@/app/components/budget/BudgetMonthlyChart';
 import BudgetCategoryTable from '@/app/components/budget/BudgetCategoryTable';
 import BudgetComparisonChart from '@/app/components/budget/BudgetComparisonChart';
 import PeriodSelector from '@/app/components/dashboard/PeriodSelector';
+import MainLayout from '@/app/components/MainLayout';
 
 // Interface voor budget entries met GL account gegevens
 interface BudgetEntryWithGlAccount {
@@ -53,12 +54,8 @@ export default function BudgetOverviewPage() {
   const searchParams = useSearchParams();
   const yearParam = searchParams?.get('year');
   
-  const supabase = createClientComponentClient<Database>();
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
-  const [revenueEntries, setRevenueEntries] = useState<BudgetEntryWithGlAccount[]>([]);
-  const [expenseEntries, setExpenseEntries] = useState<BudgetEntryWithGlAccount[]>([]);
-  const [previousYearRevenueEntries, setPreviousYearRevenueEntries] = useState<BudgetEntryWithGlAccount[]>([]);
-  const [previousYearExpenseEntries, setPreviousYearExpenseEntries] = useState<BudgetEntryWithGlAccount[]>([]);
+  const [budgetEntries, setBudgetEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(
@@ -68,129 +65,59 @@ export default function BudgetOverviewPage() {
   
   const previousYear = selectedYear - 1;
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) {
-        router.push('/auth/signin');
-        return;
-      }
-      
-      // Haal gebruikersorganisatie op
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('organization_id')
-        .eq('id', session.user.id)
-        .single();
-      
-      if (!profile?.organization_id) {
-        setError('Geen organisatie gevonden. Log opnieuw in of neem contact op met ondersteuning.');
-        setLoading(false);
-        return;
-      }
-      
-      const organizationId = profile.organization_id;
-
-      // Fetch GL accounts
-      const { data: accountsData, error: accountsError } = await supabase
-        .from('gl_accounts')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .order('code');
-
-      if (accountsError) {
-        throw new Error(`Error fetching GL accounts: ${accountsError.message}`);
-      }
-
-      // Fetch huidige jaar revenue entries
-      const { data: revenueData, error: revenueError } = await supabase
-        .from('budget_entries')
-        .select('*, gl_account:gl_account_id(*)')
-        .eq('organization_id', organizationId)
-        .eq('year', selectedYear)
-        .eq('type', 'revenue');
-
-      if (revenueError) {
-        throw new Error(`Error fetching revenue entries: ${revenueError.message}`);
-      }
-
-      // Fetch huidige jaar expense entries
-      const { data: expenseData, error: expenseError } = await supabase
-        .from('budget_entries')
-        .select('*, gl_account:gl_account_id(*)')
-        .eq('organization_id', organizationId)
-        .eq('year', selectedYear)
-        .eq('type', 'expense');
-
-      if (expenseError) {
-        throw new Error(`Error fetching expense entries: ${expenseError.message}`);
-      }
-      
-      // Fetch vorige jaar revenue entries
-      const { data: prevRevenueData, error: prevRevenueError } = await supabase
-        .from('budget_entries')
-        .select('*, gl_account:gl_account_id(*)')
-        .eq('organization_id', organizationId)
-        .eq('year', previousYear)
-        .eq('type', 'revenue');
-
-      if (prevRevenueError) {
-        console.error(`Error fetching previous year revenue: ${prevRevenueError.message}`);
-        // Niet fataal, we gaan door
-      }
-
-      // Fetch vorige jaar expense entries
-      const { data: prevExpenseData, error: prevExpenseError } = await supabase
-        .from('budget_entries')
-        .select('*, gl_account:gl_account_id(*)')
-        .eq('organization_id', organizationId)
-        .eq('year', previousYear)
-        .eq('type', 'expense');
-
-      if (prevExpenseError) {
-        console.error(`Error fetching previous year expenses: ${prevExpenseError.message}`);
-        // Niet fataal, we gaan door
-      }
-
-      setGlAccounts(accountsData || []);
-      setRevenueEntries(revenueData || []);
-      setExpenseEntries(expenseData || []);
-      setPreviousYearRevenueEntries(prevRevenueData || []);
-      setPreviousYearExpenseEntries(prevExpenseData || []);
-    } catch (err) {
-      console.error('Error:', err);
-      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van gegevens');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const supabase = getBrowserSupabaseClient();
+        
+        // Fetch GL accounts without org_id filtering
+        const { data: accountsData, error: accountsError } = await supabase
+          .from('gl_accounts')
+          .select('*')
+          .order('code');
+
+        if (accountsError) throw accountsError;
+
+        // Fetch budget entries without org_id filtering
+        const { data: entriesData, error: entriesError } = await supabase
+          .from('budget_entries')
+          .select('*, gl_account:gl_account_id(*)')
+          .order('created_at', { ascending: false });
+
+        if (entriesError) throw entriesError;
+
+        setGlAccounts(accountsData || []);
+        setBudgetEntries(entriesData || []);
+      } catch (err) {
+        console.error('Error:', err);
+        setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van gegevens');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchData();
-  }, [selectedYear]);
+  }, []);
 
   // KPI berekeningen
   const totalRevenue = useMemo(() => 
-    revenueEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0),
-    [revenueEntries]
+    budgetEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0),
+    [budgetEntries]
   );
   
   const totalExpenses = useMemo(() => 
-    expenseEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0),
-    [expenseEntries]
+    budgetEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0),
+    [budgetEntries]
   );
   
   const previousYearTotalRevenue = useMemo(() => 
-    previousYearRevenueEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0),
-    [previousYearRevenueEntries]
+    budgetEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0),
+    [budgetEntries]
   );
   
   const previousYearTotalExpenses = useMemo(() => 
-    previousYearExpenseEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0),
-    [previousYearExpenseEntries]
+    budgetEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0),
+    [budgetEntries]
   );
 
   // Maandelijkse data voor grafieken
@@ -199,11 +126,11 @@ export default function BudgetOverviewPage() {
     const monthlyData = months.map((month, index) => {
       const monthNumber = index + 1;
       
-      const monthlyRevenue = revenueEntries
+      const monthlyRevenue = budgetEntries
         .filter(entry => entry.month === monthNumber)
         .reduce((sum, entry) => sum + (entry.amount || 0), 0);
         
-      const monthlyExpenses = expenseEntries
+      const monthlyExpenses = budgetEntries
         .filter(entry => entry.month === monthNumber)
         .reduce((sum, entry) => sum + (entry.amount || 0), 0);
         
@@ -216,7 +143,7 @@ export default function BudgetOverviewPage() {
     });
     
     return monthlyData;
-  }, [revenueEntries, expenseEntries]);
+  }, [budgetEntries]);
 
   // Bouw hiërarchische categorie structuur
   const buildCategoryHierarchy = (
@@ -306,13 +233,13 @@ export default function BudgetOverviewPage() {
   };
   
   const revenueCategories = useMemo(() => 
-    buildCategoryHierarchy(revenueEntries, glAccounts.filter(a => a.type === 'revenue')),
-    [revenueEntries, glAccounts]
+    buildCategoryHierarchy(budgetEntries.filter(e => e.type === 'revenue'), glAccounts.filter(a => a.type === 'revenue')),
+    [budgetEntries, glAccounts]
   );
   
   const expenseCategories = useMemo(() => 
-    buildCategoryHierarchy(expenseEntries, glAccounts.filter(a => a.type === 'expense')),
-    [expenseEntries, glAccounts]
+    buildCategoryHierarchy(budgetEntries.filter(e => e.type === 'expense'), glAccounts.filter(a => a.type === 'expense')),
+    [budgetEntries, glAccounts]
   );
   
   // Data voor jaarlijkse vergelijkingsgrafieken
@@ -362,20 +289,20 @@ export default function BudgetOverviewPage() {
   
   const revenueComparisonData = useMemo(() => 
     buildComparisonData(
-      revenueEntries, 
-      previousYearRevenueEntries, 
+      budgetEntries.filter(e => e.type === 'revenue'), 
+      budgetEntries.filter(e => e.type === 'revenue'), 
       glAccounts.filter(a => a.type === 'revenue')
     ),
-    [revenueEntries, previousYearRevenueEntries, glAccounts]
+    [budgetEntries, glAccounts]
   );
   
   const expenseComparisonData = useMemo(() => 
     buildComparisonData(
-      expenseEntries, 
-      previousYearExpenseEntries, 
+      budgetEntries.filter(e => e.type === 'expense'), 
+      budgetEntries.filter(e => e.type === 'expense'), 
       glAccounts.filter(a => a.type === 'expense')
     ),
-    [expenseEntries, previousYearExpenseEntries, glAccounts]
+    [budgetEntries, glAccounts]
   );
   
   const handlePeriodChange = (newPeriod: 'month' | 'quarter' | 'half-year' | 'year') => {
@@ -390,101 +317,102 @@ export default function BudgetOverviewPage() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-6 bg-red-50 border border-red-200 rounded-lg mt-6">
-        <h3 className="text-lg font-medium text-red-800">Er is een fout opgetreden</h3>
-        <p className="mt-2 text-red-700">{error}</p>
-        <button 
-          onClick={() => window.location.reload()}
-          className="mt-4 px-4 py-2 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
-        >
-          Probeer opnieuw
-        </button>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Begroting Overzicht</h1>
-        <div className="flex space-x-4">
-          <PeriodSelector
-            period={period}
-            year={selectedYear}
-            month={new Date().getMonth() + 1}
-            onPeriodChange={handlePeriodChange}
-            onDateChange={(year) => handleYearChange(year)}
-          />
-          <button
-            onClick={() => window.location.reload()}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200"
-          >
-            <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Vernieuwen
-          </button>
+    <MainLayout>
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-[#1E1E3F]">Budget Overzicht</h1>
+        </div>
+
+        {error && (
+          <div className="mb-4 p-4 text-sm text-red-700 bg-red-100 rounded-lg">
+            {error}
+          </div>
+        )}
+
+        <div className="bg-white shadow rounded-lg">
+          <div className="container mx-auto px-4 py-8 max-w-7xl">
+            <div className="flex justify-between items-center mb-6">
+              <h1 className="text-2xl font-bold text-gray-900">Begroting Overzicht</h1>
+              <div className="flex space-x-4">
+                <PeriodSelector
+                  period={period}
+                  year={selectedYear}
+                  month={new Date().getMonth() + 1}
+                  onPeriodChange={handlePeriodChange}
+                  onDateChange={(year) => handleYearChange(year)}
+                />
+                <button
+                  onClick={() => window.location.reload()}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200"
+                >
+                  <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Vernieuwen
+                </button>
+              </div>
+            </div>
+
+            {/* KPI Cards */}
+            <div className="mb-8">
+              <BudgetKPICards
+                totalRevenue={totalRevenue}
+                totalExpenses={totalExpenses}
+                previousYearRevenue={previousYearTotalRevenue}
+                previousYearExpenses={previousYearTotalExpenses}
+                year={selectedYear}
+              />
+            </div>
+
+            {/* Monthly Chart */}
+            <div className="mb-8">
+              <BudgetMonthlyChart
+                data={monthlyChartData}
+                year={selectedYear}
+              />
+            </div>
+
+            {/* Revenue & Expense Tables */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+              <BudgetCategoryTable
+                title="Begrote Inkomsten"
+                categories={revenueCategories}
+                year={selectedYear}
+              />
+              <BudgetCategoryTable
+                title="Begrote Uitgaven"
+                categories={expenseCategories}
+                year={selectedYear}
+              />
+            </div>
+
+            {/* Year Comparison Charts */}
+            {(previousYearTotalRevenue > 0 || previousYearTotalExpenses > 0) && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <BudgetComparisonChart
+                  data={revenueComparisonData}
+                  currentYear={selectedYear}
+                  previousYear={previousYear}
+                  type="revenue"
+                />
+                <BudgetComparisonChart
+                  data={expenseComparisonData}
+                  currentYear={selectedYear}
+                  previousYear={previousYear}
+                  type="expenses"
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
-      {/* KPI Cards */}
-      <div className="mb-8">
-        <BudgetKPICards
-          totalRevenue={totalRevenue}
-          totalExpenses={totalExpenses}
-          previousYearRevenue={previousYearTotalRevenue}
-          previousYearExpenses={previousYearTotalExpenses}
-          year={selectedYear}
-        />
-      </div>
-
-      {/* Monthly Chart */}
-      <div className="mb-8">
-        <BudgetMonthlyChart
-          data={monthlyChartData}
-          year={selectedYear}
-        />
-      </div>
-
-      {/* Revenue & Expense Tables */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        <BudgetCategoryTable
-          title="Begrote Inkomsten"
-          categories={revenueCategories}
-          year={selectedYear}
-        />
-        <BudgetCategoryTable
-          title="Begrote Uitgaven"
-          categories={expenseCategories}
-          year={selectedYear}
-        />
-      </div>
-
-      {/* Year Comparison Charts */}
-      {(previousYearTotalRevenue > 0 || previousYearTotalExpenses > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <BudgetComparisonChart
-            data={revenueComparisonData}
-            currentYear={selectedYear}
-            previousYear={previousYear}
-            type="revenue"
-          />
-          <BudgetComparisonChart
-            data={expenseComparisonData}
-            currentYear={selectedYear}
-            previousYear={previousYear}
-            type="expenses"
-          />
-        </div>
-      )}
-    </div>
+    </MainLayout>
   );
 } 

@@ -105,9 +105,16 @@ export default function IncomeTable({
       // Calculate final amount
       const finalAmount = calculateAmount();
       
+      // Ensure organization_id is set
+      const dataToUpdate = {
+        ...editForm, 
+        amount: finalAmount,
+        organization_id: editForm.organization_id || '00000000-0000-0000-0000-000000000000'
+      };
+      
       const { error } = await supabase
         .from('budget_income')
-        .update({ ...editForm, amount: finalAmount })
+        .update(dataToUpdate)
         .eq('id', editForm.id);
         
       if (error) throw error;
@@ -116,7 +123,7 @@ export default function IncomeTable({
       setIncomeItems(prevItems => 
         prevItems.map(item => 
           item.id === editForm.id 
-            ? { ...item, ...editForm, amount: finalAmount } 
+            ? { ...item, ...dataToUpdate } 
             : item
         )
       );

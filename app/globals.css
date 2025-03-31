@@ -19,6 +19,37 @@
   }
 }
 
+/* Form element styles */
+select, 
+option,
+input,
+textarea {
+  @apply text-gray-900 !important;
+  @apply font-medium !important;
+  color: #111827 !important;
+}
+
+::placeholder {
+  @apply text-gray-700 !important;
+  color: #374151 !important;
+}
+
+/* Ensure form elements maintain dark text in dark mode */
+@media (prefers-color-scheme: dark) {
+  select, 
+  option,
+  input,
+  textarea {
+    @apply text-gray-900 !important;
+    color: #111827 !important;
+  }
+
+  ::placeholder {
+    @apply text-gray-700 !important;
+    color: #374151 !important;
+  }
+}
+
 :root {
   --foreground-rgb: 0, 0, 0;
   --background-rgb: 248, 250, 252;

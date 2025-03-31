@@ -11,7 +11,6 @@ type Product = {
   price: number;
   description: string;
   created_at: string;
-  organization_id: string;
 };
 
 export default function ProductsPage() {
@@ -24,58 +23,10 @@ export default function ProductsPage() {
       try {
         const supabase = getBrowserSupabaseClient();
         
-        // Check for active session first
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('Auth session error:', sessionError);
-          throw new Error('Session error: ' + sessionError.message);
-        }
-        
-        if (!session) {
-          console.error('No active session found');
-          throw new Error('Auth session missing!');
-        }
-        
-        // Get the current user
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError) {
-          console.error('User error:', userError);
-          throw new Error(userError.message);
-        }
-        
-        if (!user) {
-          throw new Error('You must be logged in to view products');
-        }
-        
-        // Try to get the user's organization
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('organization_id')
-          .eq('id', user.id)
-          .single();
-        
-        // If there's a profile error, check if it's because the table doesn't exist
-        if (profileError) {
-          if (profileError.message.includes('relation "public.profiles" does not exist')) {
-            // The profiles table doesn't exist yet - this is a first-time setup
-            // For now, we'll show an empty state
-            setProducts([]);
-            return;
-          }
-          throw new Error(profileError.message);
-        }
-        
-        if (!profileData?.organization_id) {
-          throw new Error('No organization found');
-        }
-        
-        // Get all products for the organization
+        // Get all products
         const { data, error: productsError } = await supabase
           .from('products')
           .select('*')
-          .eq('organization_id', profileData.organization_id)
           .order('name', { ascending: true });
         
         if (productsError) {

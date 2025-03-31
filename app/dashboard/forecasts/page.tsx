@@ -6,12 +6,10 @@ import type { Database } from '@/app/lib/database.types';
 import Link from 'next/link';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import { format } from 'date-fns';
-import { useRouter } from 'next/navigation';
 
 type Forecast = Database['public']['Tables']['forecasts']['Row'];
 
 export default function ForecastsPage() {
-  const router = useRouter();
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,44 +23,10 @@ export default function ForecastsPage() {
       console.log('Supabase client obtained');
 
       try {
-        // Check authentication first
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        console.log('Auth check result:', {
-          hasSession: !!session,
-          userId: session?.user?.id || 'none',
-          authError: sessionError?.message || 'none'
-        });
-        
-        if (sessionError) throw sessionError;
-        
-        if (!session?.user) {
-          console.log('No session found, redirecting to signin');
-          router.push('/auth/signin');
-          return;
-        }
-
-        // Get the user's organization from organization_users table
-        const { data: orgUser, error: orgError } = await supabase
-          .from('organization_users')
-          .select('organization_id')
-          .eq('user_id', session.user.id)
-          .single();
-
-        console.log('Organization query result:', {
-          hasOrgUser: !!orgUser,
-          orgId: orgUser?.organization_id || 'none',
-          orgError: orgError?.message || 'none'
-        });
-
-        if (orgError) throw orgError;
-        if (!orgUser?.organization_id) throw new Error('Geen organisatie gevonden voor deze gebruiker');
-
-        // Now fetch forecasts for this organization
+        // Fetch all forecasts - no auth check needed
         const { data, error: forecastsError } = await supabase
           .from('forecasts')
           .select('*')
-          .eq('organization_id', orgUser.organization_id)
           .order('created_at', { ascending: false });
 
         console.log('Forecasts query result:', {
@@ -102,7 +66,7 @@ export default function ForecastsPage() {
     return () => {
       isMounted = false;
     };
-  }, [router]);
+  }, []);
 
   if (loading) {
     return (

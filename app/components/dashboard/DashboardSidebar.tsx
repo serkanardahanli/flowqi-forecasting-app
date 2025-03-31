@@ -28,7 +28,7 @@ export default function DashboardSidebar() {
       <div className="flex h-0 flex-1 flex-col overflow-y-auto pt-5 pb-4">
         <nav className="mt-5 flex-1 space-y-1 px-2">
           {navigation.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const isActive = pathname === item.href || (pathname && pathname.startsWith(`${item.href}/`));
             return (
               <Link
                 key={item.name}

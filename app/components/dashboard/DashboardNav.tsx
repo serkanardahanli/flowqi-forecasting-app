@@ -5,18 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Disclosure, Menu, Transition } from '@headlessui/react';
 import Logo from '@/app/components/Logo';
-import { createClient } from '@supabase/supabase-js';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 
 export default function DashboardNav() {
   const pathname = usePathname();
   
   const handleSignOut = async () => {
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    
-    await supabase.auth.signOut();
+    // In the simplified version, we just redirect to the home page
     window.location.href = '/';
   };
   

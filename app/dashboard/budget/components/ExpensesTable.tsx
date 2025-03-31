@@ -95,9 +95,15 @@ export default function ExpensesTable({
     try {
       const supabase = getBrowserSupabaseClient();
       
+      // Ensure organization_id is set
+      const dataToUpdate = {
+        ...editForm,
+        organization_id: editForm.organization_id || '00000000-0000-0000-0000-000000000000'
+      };
+      
       const { error } = await supabase
         .from('budget_expenses')
-        .update(editForm)
+        .update(dataToUpdate)
         .eq('id', editForm.id);
         
       if (error) throw error;
@@ -105,7 +111,7 @@ export default function ExpensesTable({
       setExpenseItems(prevItems => 
         prevItems.map(item => 
           item.id === editForm.id 
-            ? { ...item, ...editForm } 
+            ? { ...item, ...dataToUpdate } 
             : item
         )
       );

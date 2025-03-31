@@ -34,18 +34,10 @@ export default function ForecastsPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Controleer authenticatie en haal forecast data op
+    // Haal forecast data op
     const fetchForecastData = async () => {
       try {
         const supabase = getBrowserSupabaseClient();
-        
-        // Check voor actieve sessie
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError || !session) {
-          console.error('Authenticatiefout:', sessionError || 'Geen actieve sessie');
-          return;
-        }
         
         // Haal KPIs op uit Supabase
         const { data: kpiData, error: kpiError } = await supabase

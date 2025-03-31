@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
+import GlAccountSelector from '../GlAccountSelector';
 
 interface GLAccount {
   id: string;
@@ -130,6 +131,8 @@ export default function ActualExpenseForm({
     }
   }, [editEntry, setValue]);
 
+  const [selectedGlAccountId, setSelectedGlAccountId] = useState<string | null>(editEntry?.gl_account_id || null);
+
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -138,21 +141,16 @@ export default function ActualExpenseForm({
           <label htmlFor="gl_account_id" className="block text-sm font-medium text-gray-700">
             Uitgavencategorie
           </label>
-          <select
-            id="gl_account_id"
-            {...register('gl_account_id', { required: 'Kies een categorie' })}
-            className={`mt-1 block w-full border ${errors.gl_account_id ? 'border-red-300' : 'border-gray-300'} rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500`}
-          >
-            <option value="">-- Selecteer categorie --</option>
-            {eligibleAccounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.code} - {account.name}
-              </option>
-            ))}
-          </select>
-          {errors.gl_account_id && (
-            <p className="mt-1 text-sm text-red-600">{errors.gl_account_id.message}</p>
-          )}
+          <GlAccountSelector
+            glAccounts={glAccounts}
+            onSelect={(accountId) => {
+              setSelectedGlAccountId(accountId);
+            }}
+            allowedLevels={[1, 2, 3]} // Alle niveaus voor uitgaven
+            accountType="Uitgaven" // Filter op uitgavenrekeningen
+            initialSelectedCode={null}
+            className="w-full"
+          />
         </div>
         
         {/* Leverancier */}

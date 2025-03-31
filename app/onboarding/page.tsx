@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createOrganization } from '@/utils/supabase/database';
-import { createClient } from '@/utils/supabase/client';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import Logo from '@/app/components/Logo';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -18,7 +18,6 @@ type OrganizationFormValues = z.infer<typeof organizationSchema>;
 export default function OnboardingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
   const router = useRouter();
 
   const { register, handleSubmit, formState: { errors } } = useForm<OrganizationFormValues>({
@@ -28,33 +27,24 @@ export default function OnboardingPage() {
     },
   });
 
-  useEffect(() => {
-    const checkUser = async () => {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.push('/auth/signin');
-        return;
-      }
-
-      setUser(user);
-    };
-
-    checkUser();
-  }, [router]);
-
   const onSubmit = async (data: OrganizationFormValues) => {
-    if (!user) return;
-
     setIsLoading(true);
     setError(null);
 
     try {
-      const result = await createOrganization(data.name, user.id);
+      // In de vereenvoudigde versie zonder auth, maken we gewoon een organisatie aan zonder gebruiker
+      const supabase = getBrowserSupabaseClient();
+      
+      // Organisatie direct aanmaken
+      const { error: insertError } = await supabase
+        .from('organizations')
+        .insert({
+          name: data.name,
+          owner_id: 'dummy-owner-id'
+        });
 
-      if (result.error) {
-        setError(result.error);
+      if (insertError) {
+        setError(insertError.message);
         return;
       }
 

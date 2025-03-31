@@ -1,638 +1,606 @@
-'use client';
+"use client";
 
 import { useState, useEffect } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { PlusIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
-import RevenueForm from '@/app/components/budget/RevenueForm';
-import BulkRevenueInput, { BulkRevenueEntry } from '@/app/components/budget/BulkRevenueInput';
-import PeriodSelector from '@/app/components/dashboard/PeriodSelector';
-import { formatCurrency } from '@/lib/utils';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
+import MainLayout from '@/app/components/MainLayout';
 
-console.log('Budget Revenue page loading - budget/revenue/page.tsx');
-
-// Interfaces
 interface Product {
   id: string;
   name: string;
-  description?: string;
   price: number;
+  description?: string;
+  gl_account_id: string;
+  type: 'saas' | 'consultancy';
 }
 
-interface GLAccount {
+interface BudgetEntry {
+  id: string;
+  description: string;
+  amount: number;
+  year: number;
+  month: number;
+  product_id?: string;
+  type: string;
+  created_at: string;
+  organization_id: string;
+  product?: Product;
+  number_of_users?: number;
+}
+
+interface GlAccount {
   id: string;
   code: string;
   name: string;
   type: string;
-  parent_id?: string;
-  level: number;
-}
-
-interface BudgetRevenueEntry {
-  id?: string;
-  gl_account_id: string;
-  gl_account?: GLAccount;
-  product_id?: string;
-  product?: Product;
-  year: number;
-  month: number;
-  amount: number;
-  number_of_users?: number;
-  description?: string;
-  type: 'Planned' | 'Actual';
+  parent_id: string | null;
 }
 
 export default function BudgetRevenuePage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const yearParam = searchParams?.get('year');
-  const monthParam = searchParams?.get('month');
-  
-  // State
-  const [year, setYear] = useState<number>(yearParam ? parseInt(yearParam) : new Date().getFullYear());
-  const [month, setMonth] = useState<number>(monthParam ? parseInt(monthParam) : new Date().getMonth() + 1);
-  const [period, setPeriod] = useState<'month' | 'quarter' | 'half-year' | 'year'>('month');
-  const [view, setView] = useState<'table' | 'bulk'>('table');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  
-  const [showRevenueForm, setShowRevenueForm] = useState<boolean>(false);
-  const [showBulkInput, setShowBulkInput] = useState<boolean>(false);
-  const [editEntry, setEditEntry] = useState<BudgetRevenueEntry | null>(null);
-  
-  const [entries, setEntries] = useState<BudgetRevenueEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [budgetEntries, setBudgetEntries] = useState<BudgetEntry[]>([]);
+  const [filteredEntries, setFilteredEntries] = useState<BudgetEntry[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [glAccounts, setGlAccounts] = useState<GLAccount[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [defaultOrganizationId, setDefaultOrganizationId] = useState("c79beb17-aad3-4903-94d1-a0849667dbf6");
+  const [defaultSaasGlAccountId, setDefaultSaasGlAccountId] = useState<string | null>(null);
+  const [defaultConsultancyGlAccountId, setDefaultConsultancyGlAccountId] = useState<string | null>(null);
+  const [numberOfUsers, setNumberOfUsers] = useState('');
+  const [isSaasProduct, setIsSaasProduct] = useState(false);
+  const [isConsultancyProduct, setIsConsultancyProduct] = useState(false);
+  const [calculatedTotal, setCalculatedTotal] = useState('');
+  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
+  const [productTypeFilter, setProductTypeFilter] = useState('all'); // 'all', 'saas', 'consultancy'
   
-  const supabase = createClientComponentClient();
+  // Form state
+  const [amount, setAmount] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1); // 1-12
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [submitting, setSubmitting] = useState(false);
   
-  // Datumbereik berekenen
-  const getDateRange = () => {
-    let startMonth = month;
-    let endMonth = month;
-    let startYear = year;
-    let endYear = year;
-    
-    if (period === 'quarter') {
-      startMonth = Math.floor((month - 1) / 3) * 3 + 1;
-      endMonth = startMonth + 2;
-    } else if (period === 'half-year') {
-      startMonth = month <= 6 ? 1 : 7;
-      endMonth = month <= 6 ? 6 : 12;
-    } else if (period === 'year') {
-      startMonth = 1;
-      endMonth = 12;
-    }
-    
-    return { startMonth, endMonth, startYear, endYear };
-  };
-  
-  // Data ophalen
+  // Bereken het totaalbedrag wanneer aantal of prijs wijzigt
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      setError(null);
+    if (amount && numberOfUsers) {
+      const total = parseFloat(amount) * parseInt(numberOfUsers);
+      setCalculatedTotal(`${numberOfUsers} × €${parseFloat(amount).toFixed(2)} = €${total.toFixed(2)}`);
+    } else {
+      setCalculatedTotal('');
+    }
+  }, [amount, numberOfUsers]);
+  
+  // Filter entries wanneer jaar of producttype wijzigt
+  useEffect(() => {
+    if (budgetEntries.length > 0) {
+      let filtered = budgetEntries.filter(entry => entry.year === filterYear);
       
+      if (productTypeFilter !== 'all') {
+        filtered = filtered.filter(entry => {
+          const product = entry.product;
+          if (!product) return false;
+          
+          if (productTypeFilter === 'saas') {
+            return product.name?.toLowerCase().includes('saas') || 
+                   product.description?.toLowerCase().includes('saas');
+          } else if (productTypeFilter === 'consultancy') {
+            return product.name?.toLowerCase().includes('consultancy') || 
+                   product.description?.toLowerCase().includes('consultancy');
+          }
+          
+          return true;
+        });
+      }
+      
+      setFilteredEntries(filtered);
+    }
+  }, [budgetEntries, filterYear, productTypeFilter]);
+  
+  // Initiële data ophalen
+  useEffect(() => {
+    const fetchInitialData = async () => {
       try {
-        const { startMonth, endMonth, startYear, endYear } = getDateRange();
+        const supabase = getBrowserSupabaseClient();
         
-        console.log("Budget/revenue/page: Laden van data gestart");
-        
-        // Gebruiker sessie controleren
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          router.push('/auth/signin');
-          return;
-        }
-        
-        // Organisatie ID ophalen
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('organization_id')
-          .eq('id', session.user.id)
-          .single();
-        
-        if (!profile?.organization_id) {
-          setError('Geen organisatie gevonden. Log opnieuw in of neem contact op met ondersteuning.');
-          setIsLoading(false);
-          return;
-        }
-        
-        const organizationId = profile.organization_id;
-        
-        // Producten ophalen
-        const { data: productsData, error: productsError } = await supabase
-          .from('products')
-          .select('*')
-          .eq('organization_id', organizationId);
-        
-        if (productsError) throw new Error('Error fetching products: ' + productsError.message);
-        
-        // GL accounts ophalen
+        // Haal GL accounts op
         const { data: glAccountsData, error: glAccountsError } = await supabase
           .from('gl_accounts')
           .select('*')
-          .eq('organization_id', organizationId)
-          .eq('type', 'revenue');
-        
-        if (glAccountsError) throw new Error('Error fetching GL accounts: ' + glAccountsError.message);
-        
-        // Budget entries ophalen
-        let revenueQuery = supabase
-          .from('budget_entries')
-          .select('*, gl_account:gl_account_id(*), products(*)')
-          .eq('organization_id', organizationId)
-          .eq('year', year)
-          .eq('type', 'Planned');
-        
-        if (period === 'month') {
-          revenueQuery = revenueQuery.eq('month', month);
-        } else {
-          revenueQuery = revenueQuery.gte('month', startMonth).lte('month', endMonth);
+          .order('code');
+          
+        if (glAccountsError) {
+          console.error("Error fetching GL accounts:", glAccountsError);
+        } else if (glAccountsData) {
+          // Set default accounts
+          const revenueAccount = glAccountsData.find(acc => acc.code === '8000');
+          const saasAccount = glAccountsData.find(acc => acc.code === '8020');
+          const consultancyAccount = glAccountsData.find(acc => acc.code === '8010');
+          
+          if (revenueAccount) {
+            setDefaultSaasGlAccountId(revenueAccount.id);
+            setDefaultConsultancyGlAccountId(revenueAccount.id);
+          }
+          
+          if (saasAccount) {
+            setDefaultSaasGlAccountId(saasAccount.id);
+          }
+          
+          if (consultancyAccount) {
+            setDefaultConsultancyGlAccountId(consultancyAccount.id);
+          }
         }
         
-        const { data: entriesData, error: entriesError } = await revenueQuery;
-        
-        if (entriesError) throw new Error('Error fetching budget entries: ' + entriesError.message);
-        
-        setProducts(productsData || []);
-        setGlAccounts(glAccountsData || []);
-        setEntries(entriesData || []);
+        // Haal bestaande data op
+        fetchData();
         
       } catch (err) {
-        console.error('Error fetching data:', err);
-        setError(err instanceof Error ? err.message : 'An unknown error occurred');
-      } finally {
-        setIsLoading(false);
+        console.error("Error loading initial data:", err);
+        setError("Er is een fout opgetreden bij het laden van de pagina.");
       }
     };
     
-    fetchData();
-  }, [year, month, period]);
+    fetchInitialData();
+  }, []);
   
-  // Event handlers
-  const handlePeriodChange = (newPeriod: 'month' | 'quarter' | 'half-year' | 'year') => {
-    setPeriod(newPeriod);
-    router.push(`/budget/revenue?year=${year}&month=${month}&period=${newPeriod}`);
-  };
-  
-  const handleDateChange = (newYear: number, newMonth: number) => {
-    setYear(newYear);
-    setMonth(newMonth);
-    router.push(`/budget/revenue?year=${newYear}&month=${newMonth}&period=${period}`);
-  };
-  
-  const handleAddRevenue = async (data: any) => {
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      console.log("Trying to add revenue with data:", JSON.stringify(data, null, 2));
+      const supabase = getBrowserSupabaseClient();
       
-      // Controleer of alle benodigde velden aanwezig zijn
-      if (!data.gl_account_id) {
-        console.error("MISSING FIELD: gl_account_id is required but missing");
-      }
-      if (!data.year) {
-        console.error("MISSING FIELD: year is required but missing");
-      }
-      if (!data.month) {
-        console.error("MISSING FIELD: month is required but missing");
-      }
-      if (!data.amount) {
-        console.error("MISSING FIELD: amount is required but missing");
-      }
-      if (!data.product_id) {
-        console.error("MISSING FIELD: product_id is required but missing");
+      // Haal producten op
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('*')
+        .order('name');
+        
+      if (productsError) {
+        throw new Error(`Error fetching products: ${productsError.message}`);
       }
       
-      // Haal het organizationId op (nodig voor de insert)
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        console.error("Auth session error:", sessionError);
-        throw sessionError;
-      }
-      
-      if (!sessionData.session) {
-        console.error("No active session found");
-        throw new Error("Not authenticated");
-      }
-      
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('organization_id')
-        .eq('id', sessionData.session.user.id)
-        .single();
-      
-      if (profileError) {
-        console.error("Profile fetch error:", profileError);
-        throw profileError;
-      }
-      
-      if (!profileData?.organization_id) {
-        console.error("No organization_id found in user profile");
-        throw new Error("Organization ID not found");
-      }
-      
-      const organizationId = profileData.organization_id;
-      console.log("Using organization_id:", organizationId);
-      
-      // Bereid de entry voor met alle velden
-      const newEntry = {
-        gl_account_id: data.gl_account_id,
-        year: data.year,
-        month: data.month,
-        amount: data.amount,
-        product_id: data.product_id,
-        number_of_users: data.number_of_users || 0,
-        description: data.description || '',
-        type: 'Planned',
-        organization_id: organizationId
-      };
-      
-      console.log("Prepared entry for insert:", JSON.stringify(newEntry, null, 2));
-      
-      // Probeer de database-insert
-      console.log("Attempting to insert into budget_entries...");
-      const { data: result, error } = await supabase
+      // Haal budget entries op
+      const { data: entriesData, error: entriesError } = await supabase
         .from('budget_entries')
-        .insert([newEntry])
-        .select('*, gl_account:gl_account_id(*), products(*)');
-      
-      if (error) {
-        console.error("Supabase error details:", error);
-        console.error("Error code:", error.code);
-        console.error("Error message:", error.message);
-        console.error("Error details:", error.details);
-        console.error("Error hint:", error.hint);
-        throw error;
+        .select('*')
+        .eq('type', 'revenue')
+        .order('created_at', { ascending: false });
+        
+      if (entriesError) {
+        throw new Error(`Error fetching budget entries: ${entriesError.message}`);
       }
       
-      console.log("Revenue added successfully, result:", JSON.stringify(result, null, 2));
+      // Verrijk de data
+      const enrichedEntries = entriesData?.map(entry => {
+        const matchingProduct = productsData?.find(prod => prod.id === entry.product_id);
+        return {
+          ...entry,
+          product: matchingProduct || null
+        };
+      }) || [];
       
-      // Update local state
-      if (result) {
-        setEntries([...entries, ...result]);
-      }
+      setProducts(productsData || []);
+      setBudgetEntries(enrichedEntries);
       
-      setShowRevenueForm(false);
+      // Filter entries op basis van huidige jaar
+      const filtered = enrichedEntries.filter(entry => entry.year === filterYear);
+      setFilteredEntries(filtered);
       
-    } catch (err: any) {
-      console.error('Complete error object:', err);
-      console.error('Error adding revenue:', err instanceof Error ? err.message : String(err));
-      console.error('Error stack:', err instanceof Error ? err.stack : 'No stack trace available');
-      setError(err instanceof Error ? err.message : 'Failed to add revenue');
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van gegevens');
+    } finally {
+      setLoading(false);
     }
   };
   
-  const handleEditEntry = (entry: BudgetRevenueEntry) => {
-    setEditEntry(entry);
-    setShowRevenueForm(true);
+  const handleProductSelect = (productId: string) => {
+    setSelectedProductId(productId);
+    
+    if (productId) {
+      const selectedProduct = products.find(p => p.id === productId);
+      if (selectedProduct) {
+        // Zet het bedrag indien beschikbaar
+        if (selectedProduct.price) {
+          setAmount(selectedProduct.price.toString());
+        }
+        
+        // Check of het een SaaS product is
+        const isSaas = selectedProduct.name?.toLowerCase().includes('saas') || 
+                     selectedProduct.description?.toLowerCase().includes('saas');
+        
+        // Check of het een consultancy product is
+        const isConsultancy = selectedProduct.name?.toLowerCase().includes('consultancy') || 
+                            selectedProduct.description?.toLowerCase().includes('consultancy');
+        
+        setIsSaasProduct(isSaas);
+        setIsConsultancyProduct(isConsultancy);
+        
+        // Reset het aantal veld als het geen SaaS of consultancy product is
+        if (!isSaas && !isConsultancy) {
+          setNumberOfUsers('');
+        }
+      }
+    } else {
+      setIsSaasProduct(false);
+      setIsConsultancyProduct(false);
+      setAmount('');
+      setNumberOfUsers('');
+    }
   };
   
-  const handleUpdateRevenue = async (data: any) => {
-    if (!editEntry?.id) {
-      console.error("Cannot update entry: No editEntry.id available");
-      return;
-    }
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError('');
+    setSuccess('');
     
     try {
-      console.log("Trying to update revenue with data:", JSON.stringify(data, null, 2));
-      console.log("Editing entry with ID:", editEntry.id);
-      
-      // Controleer of alle benodigde velden aanwezig zijn
-      if (!data.gl_account_id) {
-        console.error("MISSING FIELD: gl_account_id is required but missing");
-      }
-      if (!data.year) {
-        console.error("MISSING FIELD: year is required but missing");
-      }
-      if (!data.month) {
-        console.error("MISSING FIELD: month is required but missing");
-      }
-      if (!data.amount) {
-        console.error("MISSING FIELD: amount is required but missing");
-      }
-      if (!data.product_id) {
-        console.error("MISSING FIELD: product_id is required but missing");
+      if (!amount) {
+        throw new Error('Vul een bedrag in');
       }
       
-      const updateObj = {
-        gl_account_id: data.gl_account_id,
-        year: data.year,
-        month: data.month,
-        amount: data.amount,
-        product_id: data.product_id,
-        number_of_users: data.number_of_users || 0,
-        description: data.description || ''
-      };
-      
-      console.log("Prepared update object:", JSON.stringify(updateObj, null, 2));
-      console.log("Attempting to update budget_entries record...");
-      
-      const { data: result, error } = await supabase
-        .from('budget_entries')
-        .update(updateObj)
-        .eq('id', editEntry.id)
-        .select('*, gl_account:gl_account_id(*), products(*)');
-      
-      if (error) {
-        console.error("Supabase error details:", error);
-        console.error("Error code:", error.code);
-        console.error("Error message:", error.message);
-        console.error("Error details:", error.details);
-        console.error("Error hint:", error.hint);
-        throw error;
+      if (isSaasProduct && !numberOfUsers) {
+        throw new Error('Vul het aantal gebruikers in voor SaaS producten');
       }
       
-      console.log("Revenue updated successfully, result:", JSON.stringify(result, null, 2));
+      if (isConsultancyProduct && !numberOfUsers) {
+        throw new Error('Vul het aantal uren in voor consultancy producten');
+      }
       
-      // Update local state
-      if (result && result[0]) {
-        setEntries(entries.map(e => e.id === editEntry.id ? result[0] : e));
+      // Kies de juiste gl_account_id op basis van het product type
+      let glAccountIdToUse;
+      
+      if (isConsultancyProduct) {
+        if (!defaultConsultancyGlAccountId) {
+          throw new Error('Geen grootboekrekening voor consultancy gevonden.');
+        }
+        glAccountIdToUse = defaultConsultancyGlAccountId;
       } else {
-        console.warn("No results returned after update, which is unexpected");
+        if (!defaultSaasGlAccountId) {
+          throw new Error('Geen grootboekrekening voor SaaS gevonden.');
+        }
+        glAccountIdToUse = defaultSaasGlAccountId;
       }
       
-      setShowRevenueForm(false);
-      setEditEntry(null);
+      const supabase = getBrowserSupabaseClient();
       
-    } catch (err: any) {
-      console.error('Complete error object:', err);
-      console.error('Error updating revenue:', err instanceof Error ? err.message : String(err));
-      console.error('Error stack:', err instanceof Error ? err.stack : 'No stack trace available');
-      setError(err instanceof Error ? err.message : 'Failed to update revenue');
-    }
-  };
-  
-  const handleDeleteEntry = async (entryId: string) => {
-    try {
-      const { error } = await supabase
+      // Bereken het totaalbedrag
+      const totalAmount = parseFloat(amount) * (numberOfUsers ? parseInt(numberOfUsers) : 1);
+      
+      // Zoek eerst de exacte entry die we willen bijwerken
+      const { data: existingEntries, error: fetchError } = await supabase
         .from('budget_entries')
-        .delete()
-        .eq('id', entryId);
+        .select('id')
+        .eq('organization_id', defaultOrganizationId)
+        .eq('gl_account_id', glAccountIdToUse)
+        .eq('year', selectedYear)
+        .eq('month', selectedMonth)
+        .eq('type', 'revenue');
+        
+      if (fetchError) {
+        console.error("Fetch error:", fetchError);
+        throw new Error(`Error bij zoeken naar bestaande begrotingspost: ${fetchError.message}`);
+      }
       
-      if (error) throw error;
+      console.log("Bestaande entries:", existingEntries);
       
-      // Update local state
-      setEntries(entries.filter(e => e.id !== entryId));
+      // Als we een bestaande entry hebben, bijwerken. Anders een nieuwe toevoegen.
+      if (existingEntries && existingEntries.length > 0) {
+        // Update de bestaande entry via ID
+        const { error: updateError } = await supabase
+          .from('budget_entries')
+          .update({
+            description: selectedProductId ? products.find(p => p.id === selectedProductId)?.name || 'Onbekend product' : 'Handmatige invoer',
+            amount: totalAmount,
+            product_id: selectedProductId || null,
+            number_of_users: numberOfUsers ? parseInt(numberOfUsers) : null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingEntries[0].id);
+          
+        if (updateError) {
+          console.error("Update error:", updateError);
+          throw new Error(`Error bij bijwerken begroting: ${updateError.message}`);
+        }
+        
+        setSuccess('Omzetbegroting succesvol bijgewerkt');
+      } else {
+        // Voeg een nieuwe entry toe
+        const { error: insertError } = await supabase
+          .from('budget_entries')
+          .insert([{
+            description: selectedProductId ? products.find(p => p.id === selectedProductId)?.name || 'Onbekend product' : 'Handmatige invoer',
+            amount: totalAmount,
+            year: selectedYear,
+            month: selectedMonth,
+            product_id: selectedProductId || null,
+            type: 'revenue',
+            organization_id: defaultOrganizationId,
+            gl_account_id: glAccountIdToUse,
+            number_of_users: numberOfUsers ? parseInt(numberOfUsers) : null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }]);
+          
+        if (insertError) {
+          console.error("Insert error:", insertError);
+          throw new Error(`Error bij toevoegen nieuwe begroting: ${insertError.message}`);
+        }
+        
+        setSuccess('Nieuwe omzetbegroting succesvol toegevoegd');
+      }
+      
+      resetForm();
+      fetchData();
       
     } catch (err) {
-      console.error('Error deleting entry:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete entry');
+      console.error('Error:', err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het opslaan van de begroting');
+    } finally {
+      setSubmitting(false);
     }
   };
   
-  const handleBulkSubmit = async (bulkEntries: BulkRevenueEntry[]) => {
-    try {
-      const formattedEntries = bulkEntries.map(entry => ({
-        gl_account_id: entry.gl_account_id,
-        product_id: entry.product_id,
-        year: entry.year,
-        month: entry.month,
-        amount: entry.amount,
-        number_of_users: entry.number_of_users,
-        description: entry.description,
-        type: 'Planned' as const
-      }));
-      
-      const { data, error } = await supabase
-        .from('budget_entries')
-        .insert(formattedEntries)
-        .select('*, gl_account:gl_account_id(*), products(*)');
-      
-      if (error) throw error;
-      
-      if (data) {
-        setEntries([...entries, ...data]);
-      }
-      
-      setShowBulkInput(false);
-      
-    } catch (err) {
-      console.error('Error adding bulk revenue:', err);
-      setError(err instanceof Error ? err.message : 'Failed to add bulk revenue');
-    }
+  const resetForm = () => {
+    setSelectedProductId('');
+    setAmount('');
+    setNumberOfUsers('');
+    setIsSaasProduct(false);
+    setIsConsultancyProduct(false);
+    setError('');
+    setSuccess('');
   };
   
-  // Bereken totale omzet
-  const calculateTotalRevenue = () => {
-    return entries.reduce((sum, entry) => sum + (entry.amount || 0), 0);
+  // Helper function voor maandnamen
+  const getMonthName = (monthNumber: number) => {
+    const months = [
+      'Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni', 
+      'Juli', 'Augustus', 'September', 'Oktober', 'November', 'December'
+    ];
+    return months[monthNumber - 1];
   };
   
-  // Groepeer entries per product
-  const groupedByProduct = () => {
-    const grouped: { [key: string]: BudgetRevenueEntry[] } = {};
-    
-    entries.forEach(entry => {
-      const productId = entry.product_id || 'unknown';
-      if (!grouped[productId]) {
-        grouped[productId] = [];
-      }
-      grouped[productId].push(entry);
-    });
-    
-    return Object.entries(grouped).map(([productId, entries]) => {
-      const productName = entries[0].product?.name || 'Onbekend product';
-      const totalAmount = entries.reduce((sum, entry) => sum + (entry.amount || 0), 0);
-      const totalUsers = entries.reduce((sum, entry) => sum + (entry.number_of_users || 0), 0);
-      
-      return {
-        productId,
-        productName,
-        entries,
-        totalAmount,
-        totalUsers
-      };
-    }).sort((a, b) => b.totalAmount - a.totalAmount);
-  };
-  
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
-      </div>
-    );
-  }
-  
-  if (error) {
-    return (
-      <div className="p-6 bg-red-50 border border-red-200 rounded-lg mt-6">
-        <h3 className="text-lg font-medium text-red-800">Er is een fout opgetreden</h3>
-        <p className="mt-2 text-red-700">{error}</p>
-        <button 
-          onClick={() => window.location.reload()}
-          className="mt-4 px-4 py-2 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
-        >
-          Probeer opnieuw
-        </button>
-      </div>
-    );
+  // Opties voor jaar filter
+  const yearOptions = [];
+  const currentYear = new Date().getFullYear();
+  for (let i = 0; i < 4; i++) {
+    yearOptions.push(currentYear + i);
   }
   
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 space-y-4 md:space-y-0">
-        <h1 className="text-2xl font-bold text-gray-900">Begroting - Omzet</h1>
+    <MainLayout>
+      <div className="container mx-auto p-4">
+        <h1 className="text-2xl font-bold mb-6 text-black">Omzet Begroting</h1>
         
-        <div className="flex flex-wrap gap-2">
-          <PeriodSelector 
-            period={period}
-            year={year}
-            month={month}
-            onPeriodChange={handlePeriodChange}
-            onDateChange={handleDateChange}
-          />
-          
-          <Tabs value={view} onValueChange={(value) => setView(value as 'table' | 'bulk')} className="w-[200px]">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="table">Tabel</TabsTrigger>
-              <TabsTrigger value="bulk">Bulk</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          
-          <button
-            onClick={() => view === 'table' ? setShowRevenueForm(!showRevenueForm) : setShowBulkInput(!showBulkInput)}
-            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-          >
-            {(view === 'table' && showRevenueForm) || (view === 'bulk' && showBulkInput) ? (
-              'Annuleren'
-            ) : (
-              <><PlusIcon className="h-4 w-4 mr-1" /> {view === 'table' ? 'Toevoegen' : 'Bulk Invoer'}</>
-            )}
-          </button>
-          
-          <button
-            onClick={() => window.location.reload()}
-            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-          >
-            <ArrowPathIcon className="h-4 w-4 mr-1" />
-            Vernieuwen
-          </button>
-        </div>
-      </div>
-      
-      {view === 'table' && showRevenueForm && (
-        <div className="mb-6 bg-white shadow rounded-lg">
-          <div className="px-4 py-5 border-b border-gray-200 sm:px-6">
-            <h3 className="text-lg leading-6 font-medium text-gray-900">
-              {editEntry ? 'Omzet Bewerken' : 'Nieuwe Omzet Toevoegen'}
-            </h3>
+        {/* Jaar filter en type filter */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center space-x-4">
+            <span className="text-black font-medium">Filter op jaar:</span>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(parseInt(e.target.value))}
+              className="border border-gray-300 rounded-md shadow-sm p-2 text-black"
+            >
+              {yearOptions.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
           </div>
-          <div className="p-6">
-            <RevenueForm 
-              type="saas"
-              products={products}
-              glAccounts={glAccounts}
-              currentYear={year}
-              currentMonth={month}
-              onSubmit={editEntry ? handleUpdateRevenue : handleAddRevenue}
-              onCancel={() => {
-                setShowRevenueForm(false);
-                setEditEntry(null);
-              }}
-            />
+          
+          <div className="flex items-center space-x-4">
+            <span className="text-black font-medium">Filter op type:</span>
+            <select
+              value={productTypeFilter}
+              onChange={(e) => setProductTypeFilter(e.target.value)}
+              className="border border-gray-300 rounded-md shadow-sm p-2 text-black"
+            >
+              <option value="all">Alle producten</option>
+              <option value="saas">SaaS</option>
+              <option value="consultancy">Consultancy</option>
+            </select>
           </div>
-        </div>
-      )}
-      
-      {view === 'bulk' && showBulkInput && (
-        <div className="mb-6">
-          <BulkRevenueInput
-            products={products}
-            glAccounts={glAccounts}
-            year={year}
-            onSubmit={handleBulkSubmit}
-            onCancel={() => setShowBulkInput(false)}
-          />
-        </div>
-      )}
-      
-      {/* Omzet Tabel */}
-      <div className="bg-white shadow rounded-lg overflow-hidden mb-8">
-        <div className="px-4 py-5 border-b border-gray-200 sm:px-6 flex justify-between items-center">
-          <h2 className="text-lg font-medium text-gray-900">Begrote Omzet {year}</h2>
-          <span className="text-lg font-medium text-indigo-600">{formatCurrency(calculateTotalRevenue())}</span>
         </div>
         
-        {entries.length === 0 ? (
-          <div className="p-6 text-center text-gray-500">
-            Geen begrote omzet gevonden voor deze periode. Gebruik de knop 'Toevoegen' om te beginnen.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categorie</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Gebruikers</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Prijs per Gebruiker</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Bedrag</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Periode</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acties</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {entries.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 whitespace-nowrap text-sm">{entry.product?.name || 'N/A'}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm">{entry.gl_account?.name || 'N/A'}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-right">{entry.number_of_users || 'N/A'}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-right">
-                      {entry.product?.price ? formatCurrency(entry.product.price) : 'N/A'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(entry.amount)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm">{`${entry.month}/${entry.year}`}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleEditEntry(entry)}
-                        className="text-indigo-600 hover:text-indigo-900 mr-3"
-                      >
-                        Bewerken
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (window.confirm('Weet je zeker dat je dit item wilt verwijderen?')) {
-                            handleDeleteEntry(entry.id!);
-                          }
-                        }}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Verwijderen
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Foutmelding of succes bericht */}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-black px-4 py-3 rounded mb-4">
+            {error}
           </div>
         )}
-      </div>
-      
-      {/* Overzicht per Product */}
-      {entries.length > 0 && (
-        <div className="bg-white shadow rounded-lg overflow-hidden">
-          <div className="px-4 py-5 border-b border-gray-200 sm:px-6">
-            <h2 className="text-lg font-medium text-gray-900">Samenvatting per Product</h2>
+        
+        {success && (
+          <div className="bg-green-100 border border-green-400 text-black px-4 py-3 rounded mb-4">
+            {success}
           </div>
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {groupedByProduct().map(group => (
-                <div key={group.productId} className="bg-gray-50 p-4 rounded-lg">
-                  <h3 className="font-medium text-gray-900 mb-2">{group.productName}</h3>
-                  <div className="flex justify-between mb-1">
-                    <span className="text-sm text-gray-500">Gebruikers:</span>
-                    <span className="text-sm font-medium">{group.totalUsers}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-500">Omzet:</span>
-                    <span className="text-sm font-medium">{formatCurrency(group.totalAmount)}</span>
-                  </div>
+        )}
+        
+        {/* Formulier voor het toevoegen van omzet begroting */}
+        <div className="bg-white rounded shadow p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4 text-black">Nieuwe Omzet Begroting</h2>
+          
+          <form onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="product" className="block text-sm font-medium text-black">
+                  Product (optioneel)
+                </label>
+                <select
+                  id="product"
+                  value={selectedProductId}
+                  onChange={(e) => handleProductSelect(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-black"
+                >
+                  <option value="">-- Selecteer een product --</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name} - €{parseFloat(product.price.toString()).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-sm text-black">
+                  Selecteer een product om automatisch de prijs in te vullen
+                </p>
+              </div>
+              
+              <div>
+                <label htmlFor="month-year" className="block text-sm font-medium text-black">
+                  Maand
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    id="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-black"
+                    required
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                      <option key={month} value={month}>
+                        {getMonthName(month)}
+                      </option>
+                    ))}
+                  </select>
+                  
+                  <select
+                    id="year"
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-black"
+                    required
+                  >
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ))}
+              </div>
+              
+              <div>
+                <label htmlFor="amount" className="block text-sm font-medium text-black">
+                  Bedrag (€)
+                </label>
+                <input
+                  type="number"
+                  id="amount"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-black"
+                  min="0"
+                  step="0.01"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="number_of_users" className="block text-sm font-medium text-black">
+                  {isConsultancyProduct ? 'Aantal uren' : 'Aantal gebruikers (alleen voor SaaS)'}
+                </label>
+                <input
+                  type="number"
+                  id="number_of_users"
+                  value={numberOfUsers}
+                  onChange={(e) => setNumberOfUsers(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-black"
+                  min="1"
+                  placeholder={isConsultancyProduct ? "Vul aantal uren in" : "Vul in voor SaaS producten"}
+                />
+              </div>
             </div>
-          </div>
+            
+            {/* Totaalberekening */}
+            {amount && numberOfUsers && (
+              <div className="mt-4 p-3 bg-gray-50 rounded border border-gray-200">
+                <p className="text-black font-medium">Totaal: {calculatedTotal}</p>
+              </div>
+            )}
+            
+            <div className="mt-6 flex space-x-3">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded shadow transition"
+              >
+                {submitting ? 'Bezig met opslaan...' : 'Opslaan'}
+              </button>
+              
+              <button
+                type="button"
+                onClick={resetForm}
+                className="bg-gray-200 hover:bg-gray-300 text-black py-2 px-4 rounded shadow transition"
+              >
+                Annuleren
+              </button>
+            </div>
+          </form>
         </div>
-      )}
-    </div>
+        
+        {/* Tabel met bestaande begrotingsposten */}
+        <div className="bg-white rounded shadow overflow-hidden">
+          <h2 className="text-xl font-semibold p-4 border-b text-black">Omzet Begroting Overzicht</h2>
+          
+          {loading ? (
+            <div className="p-4 text-center">
+              <p className="text-black">Gegevens laden...</p>
+            </div>
+          ) : filteredEntries.length === 0 ? (
+            <div className="p-4 text-center">
+              <p className="text-black">Geen begrotingsposten gevonden voor {filterYear}. Gebruik het formulier hierboven om een begroting toe te voegen.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-black uppercase tracking-wider">Maand</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-black uppercase tracking-wider">Omschrijving</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-black uppercase tracking-wider">Product</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-black uppercase tracking-wider">Aantal</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-black uppercase tracking-wider">Bedrag</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredEntries.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-black">
+                        {getMonthName(entry.month)} {entry.year}
+                      </td>
+                      <td className="px-6 py-4 text-black">
+                        {entry.description}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-black">
+                        {entry.product ? entry.product.name : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-black">
+                        {entry.number_of_users ? 
+                          `${entry.number_of_users} ${
+                            entry.product && (
+                              entry.product.name?.toLowerCase().includes('consultancy') || 
+                              entry.product.description?.toLowerCase().includes('consultancy')
+                            ) ? 'uren' : 'gebruikers'
+                          }` 
+                          : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap font-medium text-black">
+                        €{parseFloat(entry.amount.toString()).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan={4} className="px-6 py-4 text-right font-medium text-black">
+                      Totaal:
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap font-bold text-black">
+                      €{filteredEntries.reduce((sum, entry) => sum + parseFloat(entry.amount.toString() || '0'), 0).toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </MainLayout>
   );
 } 

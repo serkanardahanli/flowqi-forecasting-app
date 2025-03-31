@@ -13,6 +13,7 @@ export type Product = {
   type: ProductType;
   name: string;
   price: number;
+  description?: string;
   is_required?: boolean;
   organization_id: string;
   created_at?: string;

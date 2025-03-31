@@ -1,12 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/app/lib/supabase';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import Link from 'next/link';
 import { PlusIcon } from '@heroicons/react/24/outline';
 
-type ExpenseCategory = Database['public']['Tables']['expense_categories']['Row'];
+type ExpenseCategory = {
+  id: string;
+  name: string;
+  gl_code: string | null;
+  description: string | null;
+  parent_id: string | null;
+};
 
 export default function ExpenseCategoriesPage() {
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
@@ -15,10 +20,7 @@ export default function ExpenseCategoriesPage() {
 
   useEffect(() => {
     const fetchCategories = async () => {
-      const supabase = createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
+      const supabase = getBrowserSupabaseClient();
 
       try {
         const { data, error } = await supabase

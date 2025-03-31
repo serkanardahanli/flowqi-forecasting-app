@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { nl } from 'date-fns/locale';
-import { createClient } from '@/utils/supabase/client';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import { PlusIcon, ClipboardDocumentListIcon } from '@heroicons/react/24/outline';
 
 type Expense = {
@@ -13,7 +13,6 @@ type Expense = {
   amount: number;
   expense_date: string;
   category: string;
-  organization_id: string;
   created_at: string;
 };
 
@@ -25,39 +24,12 @@ export default function ExpensesPage() {
   useEffect(() => {
     async function fetchExpenses() {
       try {
-        const supabase = createClient();
+        const supabase = getBrowserSupabaseClient();
         
-        // Eerst de huidige gebruiker ophalen
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError) {
-          throw new Error(userError.message);
-        }
-        
-        if (!user) {
-          throw new Error('Je moet ingelogd zijn om uitgaven te bekijken');
-        }
-        
-        // Dan de organisatie van de gebruiker opvragen
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('organization_id')
-          .eq('id', user.id)
-          .single();
-        
-        if (profileError) {
-          throw new Error(profileError.message);
-        }
-        
-        if (!profileData?.organization_id) {
-          throw new Error('Geen organisatie gevonden');
-        }
-        
-        // En dan alle uitgaven van die organisatie ophalen
+        // Alle uitgaven ophalen
         const { data, error: expensesError } = await supabase
           .from('expenses')
           .select('*')
-          .eq('organization_id', profileData.organization_id)
           .order('expense_date', { ascending: false });
         
         if (expensesError) {

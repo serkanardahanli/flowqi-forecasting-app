@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/app/lib/supabase';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -24,8 +23,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isOwner, setIsOwner] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isOwner, setIsOwner] = useState(true); // Default to true in the simplified version
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const {
@@ -42,42 +40,19 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const fetchOrganizationData = async () => {
-      const supabase = createClient<Database>(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
+      const supabase = getBrowserSupabaseClient();
 
       try {
-        // Get current user
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        if (userError) throw userError;
-
-        setCurrentUserId(userData.user.id);
-
-        // Get user's organization
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('organization_id')
-          .eq('id', userData.user.id)
-          .single();
-
-        if (profileError) throw profileError;
-
-        if (!profileData.organization_id) {
-          throw new Error('No organization found. Please set up your organization first.');
-        }
-
-        // Get organization details
+        // Get first organization from the database
         const { data: orgData, error: orgError } = await supabase
           .from('organizations')
           .select('*')
-          .eq('id', profileData.organization_id)
+          .limit(1)
           .single();
 
         if (orgError) throw orgError;
 
         setOrganization(orgData);
-        setIsOwner(orgData.owner_id === userData.user.id);
 
         // Set form default values
         reset({
@@ -101,10 +76,7 @@ export default function SettingsPage() {
     setSuccessMessage(null);
     setError(null);
 
-    const supabase = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const supabase = getBrowserSupabaseClient();
 
     try {
       const { error } = await supabase

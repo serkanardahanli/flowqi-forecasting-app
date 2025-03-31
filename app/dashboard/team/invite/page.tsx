@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/app/lib/supabase';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -37,33 +36,9 @@ export default function InviteTeamMemberPage() {
     setLoading(true);
     setError(null);
 
-    const supabase = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const supabase = getBrowserSupabaseClient();
 
     try {
-      // Get current user and organization
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-
-      const { data: currentUserProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role, organization_id')
-        .eq('id', userData.user.id)
-        .single();
-
-      if (profileError) throw profileError;
-
-      // Check if user is admin
-      if (currentUserProfile.role !== 'admin') {
-        throw new Error('Only administrators can invite team members');
-      }
-
-      if (!currentUserProfile.organization_id) {
-        throw new Error('No organization found. Please set up your organization first.');
-      }
-
       // Send invitation email
       // Note: This is a simplified version, in a real app you would:
       // 1. Create a server-side API endpoint to handle this securely

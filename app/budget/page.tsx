@@ -1,12 +1,11 @@
-'use client';
+"use client";
 
 import { useState, useEffect, useMemo } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Database } from '@/types/supabase';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
+import type { Database } from '@/types/supabase';
 import { GlAccount } from '@/types/models';
 import { formatCurrency, getMonthName, getYearOptions } from '@/lib/utils';
 import MainLayout from '@/app/components/MainLayout';
-import { ensureClientUserProfile } from '@/app/utils/auth';
 
 // Interface voor budget entries met GL account gegevens
 interface BudgetEntryWithGlAccount {
@@ -34,7 +33,6 @@ interface GroupedBudget {
 }
 
 export default function BudgetOverviewPage() {
-  const supabase = createClientComponentClient<Database>();
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
   const [budgetEntries, setBudgetEntries] = useState<BudgetEntryWithGlAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,51 +42,17 @@ export default function BudgetOverviewPage() {
   const yearOptions = getYearOptions();
   const months = Array.from({ length: 12 }, (_, i) => getMonthName(i + 1));
 
-  const getOrganizationId = async (): Promise<string | null> => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return null;
-
-    // Use maybeSingle instead of single to prevent errors with multiple or no rows
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('organization_id')
-      .eq('id', session.user.id)
-      .maybeSingle();
-
-    if (error || !profile?.organization_id) {
-      console.error('Error getting organization ID:', error?.message || 'No organization found');
-      return null;
-    }
-
-    return profile.organization_id;
-  };
-
   const fetchData = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session) {
-        window.location.href = '/auth/signin';
-        return;
-      }
-
-      // Ensure user profile is properly set up
-      await ensureClientUserProfile(session.user.id);
+      const supabase = getBrowserSupabaseClient();
       
-      const organizationId = await getOrganizationId();
-      if (!organizationId) {
-        setError('Geen organisatie gevonden. Log opnieuw in of neem contact op met ondersteuning.');
-        setLoading(false);
-        return;
-      }
-
       // Fetch GL accounts
       const { data: accountsData, error: accountsError } = await supabase
         .from('gl_accounts')
         .select('*')
-        .eq('organization_id', organizationId)
         .order('code');
 
       if (accountsError) {
@@ -99,7 +63,6 @@ export default function BudgetOverviewPage() {
       const { data: entriesData, error: entriesError } = await supabase
         .from('budget_entries')
         .select('*, gl_account:gl_account_id(*)')
-        .eq('organization_id', organizationId)
         .eq('year', selectedYear)
         .eq('type', 'expense');
 
@@ -217,6 +180,14 @@ export default function BudgetOverviewPage() {
     setSelectedYear(parseInt(e.target.value));
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -245,12 +216,7 @@ export default function BudgetOverviewPage() {
           </div>
         )}
 
-        {loading ? (
-          <div className="text-center py-10">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#1E1E3F] border-r-transparent"></div>
-            <p className="mt-4 text-gray-500">Gegevens laden...</p>
-          </div>
-        ) : budgetEntries.length === 0 ? (
+        {budgetEntries.length === 0 ? (
           <div className="bg-white shadow rounded-lg p-6 text-center text-gray-500">
             Geen budgetposten gevonden voor {selectedYear}. Voeg budgetposten toe via de uitgavenpagina.
           </div>

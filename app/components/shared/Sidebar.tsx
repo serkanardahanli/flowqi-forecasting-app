@@ -78,6 +78,7 @@ const menuStructure = [
 const Sidebar = () => {
   const pathname = usePathname();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const [currentTime, setCurrentTime] = useState<string>('');
 
   // Automatisch relevante secties uitklappen op basis van de huidige URL
   useEffect(() => {
@@ -97,6 +98,20 @@ const Sidebar = () => {
     
     setExpandedSections(newExpandedSections);
   }, [pathname]);
+
+  // Client-side tijd bijwerken om hydration errors te voorkomen
+  useEffect(() => {
+    // Update tijd direct
+    setCurrentTime(new Date().toLocaleTimeString());
+    
+    // Stel interval in om tijd elke seconde bij te werken
+    const interval = setInterval(() => {
+      setCurrentTime(new Date().toLocaleTimeString());
+    }, 1000);
+    
+    // Clean up interval on unmount
+    return () => clearInterval(interval);
+  }, []);
 
   // Helper functie om te controleren of een link actief is
   const isActive = (path: string) => {
@@ -120,9 +135,9 @@ const Sidebar = () => {
   return (
     <div className="w-64 h-full bg-white border-r border-gray-200 flex flex-col shadow-sm">
       {/* Visuele debug marker */}
-      <div className="bg-yellow-300 p-2 text-red-600 text-xs font-bold" suppressHydrationWarning>
+      <div className="bg-yellow-300 p-2 text-red-600 text-xs font-bold">
         NIEUWE SIDEBAR CODE GELADEN
-        <span id="current-time" suppressHydrationWarning></span>
+        {currentTime && <span> - {currentTime}</span>}
       </div>
       
       {/* Logo en app naam */}
@@ -203,20 +218,5 @@ const Sidebar = () => {
     </div>
   );
 };
-
-// Add client-side time update
-if (typeof window !== 'undefined') {
-  // Only run on client
-  const updateTime = () => {
-    const timeElement = document.getElementById('current-time');
-    if (timeElement) {
-      timeElement.textContent = ' - ' + new Date().toLocaleTimeString();
-    }
-  };
-  
-  // Update immediately and set interval
-  setTimeout(updateTime, 0);
-  setInterval(updateTime, 1000);
-}
 
 export default Sidebar; 

@@ -89,8 +89,14 @@ export default function ExpenseForm({
       setError('Geen grootboekrekeningen gevonden. Neem contact op met de beheerder.');
     } else if (eligibleAccounts.length === 0) {
       console.warn('Geen geschikte GL accounts gevonden op niveau 3 en type expense');
-      console.log('Beschikbare niveaus:', [...new Set(glAccounts.map(acc => acc.level))]);
-      console.log('Beschikbare types:', [...new Set(glAccounts.map(acc => acc.type))]);
+      
+      // Alternatieve manier om unieke waardes te krijgen zonder spread operator
+      const uniqueLevels = Array.from(new Set(glAccounts.map(acc => acc.level)));
+      const uniqueTypes = Array.from(new Set(glAccounts.map(acc => acc.type)));
+      
+      console.log('Beschikbare niveaus:', uniqueLevels);
+      console.log('Beschikbare types:', uniqueTypes);
+      
       setError('Geen geschikte uitgavencategorieën gevonden op niveau 3. Neem contact op met de beheerder.');
     } else {
       setError(null);

@@ -21,35 +21,6 @@ export type Database = {
           updated_at?: string;
         };
       };
-      profiles: {
-        Row: {
-          id: string;
-          email: string;
-          full_name: string;
-          organization_id: string;
-          role: string;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id: string;
-          email: string;
-          full_name?: string;
-          organization_id: string;
-          role?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          email?: string;
-          full_name?: string;
-          organization_id?: string;
-          role?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-      };
       forecasts: {
         Row: {
           id: string;

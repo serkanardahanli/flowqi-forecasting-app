@@ -1,662 +1,529 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { PlusIcon, ArrowPathIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
-import { ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
-import PeriodSelector, { Period } from '@/app/components/dashboard/PeriodSelector';
-import { formatCurrency } from '@/lib/utils';
-import RevenueForm from '@/app/components/actual/RevenueForm';
+import { useState, useEffect } from 'react';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
+import MainLayout from '@/app/components/MainLayout';
 
-console.log('Actual Revenue page loading - actual/revenue/page.tsx');
-
-// Definieer interface voor product
 interface Product {
   id: string;
   name: string;
-  description?: string;
   price: number;
+  description?: string;
+  gl_account_id: string;
+  type: 'saas' | 'consultancy';
 }
 
-// Definieer interface voor GL Account
-interface GLAccount {
+interface RevenueEntry {
+  id: string;
+  description: string;
+  amount: number;
+  entry_date: string;
+  product_id?: string;
+  entry_type: string;
+  created_at: string;
+  organization_id: string;
+  product?: Product;
+  number_of_users?: number;
+}
+
+interface GlAccount {
   id: string;
   code: string;
   name: string;
   type: string;
-  parent_id?: string;
-  level: number;
-}
-
-// Definieer interface voor budget (inkomsten) entry
-interface RevenueEntry {
-  id?: string;
-  gl_account_id: string;
-  type: 'Planned' | 'Actual';
-  year: number;
-  month: number;
-  amount: number;
-  description?: string;
-  category_code?: string;
-  gl_account?: GLAccount;
-  product_id?: string;
-  client_name?: string;
-  project_name?: string;
-  number_of_users?: number;
-  hours?: number;
-  start_date?: string;
-  end_date?: string;
-  hourly_rate?: number;
-}
-
-// Definieer interface voor inkomstencategorie (hiërarchisch)
-interface RevenueCategory {
-  code: string;
-  name: string;
-  actual: number;
-  planned?: number;
-  subcategories?: RevenueCategory[];
-  level: number;
-  gl_account_id?: string;
+  parent_id: string | null;
 }
 
 export default function ActualRevenuePage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const yearParam = searchParams?.get('year');
-  const monthParam = searchParams?.get('month');
-  const categoryParam = searchParams?.get('category');
-
-  // State
-  const [year, setYear] = useState<number>(yearParam ? parseInt(yearParam) : new Date().getFullYear());
-  const [month, setMonth] = useState<number>(monthParam ? parseInt(monthParam) : new Date().getMonth() + 1);
-  const [period, setPeriod] = useState<Period>('month');
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [glAccounts, setGLAccounts] = useState<GLAccount[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [revenueEntries, setRevenueEntries] = useState<RevenueEntry[]>([]);
-  const [hierarchicalRevenue, setHierarchicalRevenue] = useState<RevenueCategory[]>([]);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
-  const [showForm, setShowForm] = useState<boolean>(false);
-  const [editingEntry, setEditingEntry] = useState<RevenueEntry | null>(null);
-  const [revenueType, setRevenueType] = useState<'saas' | 'consultancy'>('saas');
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [tableStructure, setTableStructure] = useState<any>(null);
+  const [defaultOrganizationId, setDefaultOrganizationId] = useState("c79beb17-aad3-4903-94d1-a0849667dbf6");
+  const [defaultSaasGlAccountId, setDefaultSaasGlAccountId] = useState<string | null>(null);
+  const [defaultConsultancyGlAccountId, setDefaultConsultancyGlAccountId] = useState<string | null>(null);
+  const [numberOfUsers, setNumberOfUsers] = useState('');
+  const [isSaasProduct, setIsSaasProduct] = useState(false);
+  const [isConsultancyProduct, setIsConsultancyProduct] = useState(false);
+  const [calculatedTotal, setCalculatedTotal] = useState('');
   
-  const supabase = createClientComponentClient();
-
-  // Datumbereik berekenen
-  const getDateRange = () => {
-    let startMonth = month;
-    let endMonth = month;
-    let startYear = year;
-    let endYear = year;
-    
-    if (period === 'quarter') {
-      startMonth = Math.floor((month - 1) / 3) * 3 + 1;
-      endMonth = startMonth + 2;
-    } else if (period === 'half-year') {
-      startMonth = month <= 6 ? 1 : 7;
-      endMonth = month <= 6 ? 6 : 12;
-    } else if (period === 'year') {
-      startMonth = 1;
-      endMonth = 12;
+  // Form state
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [submitting, setSubmitting] = useState(false);
+  
+  // Remove GL accounts state and hierarchy
+  const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
+  
+  // Add useEffect for total calculation
+  useEffect(() => {
+    if (amount && numberOfUsers) {
+      const pricePerUnit = parseFloat(amount);
+      const total = pricePerUnit * parseInt(numberOfUsers);
+      setCalculatedTotal(`${numberOfUsers} × €${pricePerUnit.toFixed(2)} = €${total.toFixed(2)}`);
+    } else {
+      setCalculatedTotal('');
     }
+  }, [amount, numberOfUsers]);
+  
+  // Simplified useEffect for initial data loading
+  useEffect(() => {
+    // Log the values we're using
+    console.log("Organization ID:", defaultOrganizationId);
+    console.log("GL Account ID:", defaultSaasGlAccountId);
     
-    return { startMonth, endMonth, startYear, endYear };
+    // Just fetch the data
+    fetchData();
+  }, [defaultOrganizationId, defaultSaasGlAccountId]);
+
+  useEffect(() => {
+    const getInitialData = async () => {
+      try {
+        const supabase = getBrowserSupabaseClient();
+        
+        // Haal een bestaande rij op om de structuur te zien
+        const { data: entriesData } = await supabase
+          .from('actual_entries')
+          .select('*')
+          .limit(1);
+          
+        if (entriesData && entriesData.length > 0) {
+          console.log('Bestaande entry structuur:', entriesData[0]);
+          setTableStructure(entriesData[0]);
+          
+          // Als er een organization_id veld is, sla deze op voor later gebruik
+          if (entriesData[0].organization_id) {
+            setDefaultOrganizationId(entriesData[0].organization_id);
+            console.log('Found organization_id:', entriesData[0].organization_id);
+          }
+        } else {
+          console.log('Geen bestaande entries gevonden om de structuur te bepalen');
+        }
+        
+        // Haal nu normale data op
+        fetchData();
+      } catch (err) {
+        console.error('Error getting initial data:', err);
+        setError('Kon de initiële data niet ophalen. Controleer de console voor details.');
+        setLoading(false);
+      }
+    };
+    
+    getInitialData();
+  }, []);
+  
+    const fetchData = async () => {
+    try {
+      const supabase = getBrowserSupabaseClient();
+      
+      // Haal producten op
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('*')
+        .order('name');
+        
+      if (productsError) {
+        throw new Error(`Error fetching products: ${productsError.message}`);
+      }
+      
+      // Haal revenue entries op uit actual_entries
+      const { data: entriesData, error: entriesError } = await supabase
+        .from('actual_entries')
+        .select('*')
+        .eq('entry_type', 'revenue')
+        .order('created_at', { ascending: false });
+        
+      if (entriesError) {
+        throw new Error(`Error fetching revenue entries: ${entriesError.message}`);
+      }
+      
+      const enrichedEntries = entriesData?.map(entry => {
+        const matchingProduct = productsData?.find(prod => prod.id === entry.product_id);
+        return {
+          ...entry,
+          product: matchingProduct || null
+        };
+      }) || [];
+      
+      setProducts(productsData || []);
+      setRevenueEntries(enrichedEntries);
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van gegevens');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleProductSelect = (productId: string) => {
+    setSelectedProductId(productId);
+    
+    if (productId) {
+      const selectedProduct = products.find(p => p.id === productId);
+      if (selectedProduct) {
+        // Zet het bedrag indien beschikbaar
+        if (selectedProduct.price) {
+          setAmount(selectedProduct.price.toString());
+          console.log(`Product geselecteerd: ${selectedProduct.name} met prijs: ${selectedProduct.price}`);
+        }
+        
+        // Check of het een SaaS product is
+        const isSaas = selectedProduct.name?.toLowerCase().includes('saas') || 
+                     selectedProduct.description?.toLowerCase().includes('saas');
+        
+        // Check of het een consultancy product is
+        const isConsultancy = selectedProduct.name?.toLowerCase().includes('consultancy') || 
+                            selectedProduct.description?.toLowerCase().includes('consultancy');
+        
+        setIsSaasProduct(isSaas);
+        setIsConsultancyProduct(isConsultancy);
+        
+        // Reset het aantal veld als het geen SaaS of consultancy product is
+        if (!isSaas && !isConsultancy) {
+          setNumberOfUsers('');
+        }
+      }
+    } else {
+      setIsSaasProduct(false);
+      setIsConsultancyProduct(false);
+      setAmount('');
+      setNumberOfUsers('');
+    }
+  };
+  
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError('');
+    setSuccess('');
+    
+    try {
+      if (!amount || !date) {
+        throw new Error('Vul alle verplichte velden in');
+      }
+      
+      if (isSaasProduct && !numberOfUsers) {
+        throw new Error('Vul het aantal gebruikers in voor SaaS producten');
+      }
+      
+      if (isConsultancyProduct && !numberOfUsers) {
+        throw new Error('Vul het aantal uren in voor consultancy producten');
+      }
+      
+      // Kies de juiste gl_account_id op basis van het product type
+      let glAccountIdToUse;
+      
+      if (isConsultancyProduct) {
+        if (!defaultConsultancyGlAccountId) {
+          throw new Error('Geen grootboekrekening voor consultancy gevonden. Klik op "Zoek GL Accounts" om er een te vinden.');
+        }
+        glAccountIdToUse = defaultConsultancyGlAccountId;
+        console.log("Gebruik consultancy gl_account_id:", glAccountIdToUse);
+      } else {
+        if (!defaultSaasGlAccountId) {
+          throw new Error('Geen grootboekrekening voor SaaS gevonden. Klik op "Zoek GL Accounts" om er een te vinden.');
+        }
+        glAccountIdToUse = defaultSaasGlAccountId;
+        console.log("Gebruik SaaS gl_account_id:", glAccountIdToUse);
+      }
+      
+      const supabase = getBrowserSupabaseClient();
+      
+      // Calculate total amount
+      const totalAmount = parseFloat(amount) * (numberOfUsers ? parseInt(numberOfUsers) : 1);
+      
+      // Log the exact data we're going to send
+      const entryData = {
+        description: selectedProductId ? products.find(p => p.id === selectedProductId)?.name || 'Onbekend product' : 'Handmatige invoer',
+        amount: totalAmount,
+        entry_date: date,
+        product_id: selectedProductId || null,
+        entry_type: 'revenue',
+        organization_id: defaultOrganizationId,
+        gl_account_id: glAccountIdToUse,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        year: new Date(date).getFullYear(),
+        month: new Date(date).getMonth() + 1,
+        type: 'revenue'
+      };
+      
+      // Add number of users if present
+      if (numberOfUsers) {
+        entryData.number_of_users = parseInt(numberOfUsers);
+      }
+      
+      console.log('Submitting entry with data:', entryData);
+      
+      const { error } = await supabase
+        .from('actual_entries')
+        .insert([entryData]);
+        
+      if (error) {
+        console.error("Supabase error details:", error);
+        throw new Error(`Error adding revenue: ${error.message}`);
+      }
+      
+      // Success
+      setSuccess('Omzet succesvol geregistreerd');
+      resetForm();
+      fetchData();
+      
+    } catch (err) {
+      console.error('Error:', err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het toevoegen van omzet');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  
+  const resetForm = () => {
+    setAmount('');
+    setDate(new Date().toISOString().split('T')[0]);
+    setSelectedProductId('');
+    setNumberOfUsers('');
+    setIsSaasProduct(false);
+    setIsConsultancyProduct(false);
+    setError('');
+    setSuccess('');
   };
 
-  // Data ophalen
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      setError(null);
-      
+    const getInitialData = async () => {
       try {
-        const { startMonth, endMonth, startYear, endYear } = getDateRange();
+        const supabase = getBrowserSupabaseClient();
         
-        // GL rekeningen ophalen
-        const { data: glAccountsData, error: glError } = await supabase
+        // Fetch GL accounts
+        const { data: glAccountsData, error: glAccountsError } = await supabase
           .from('gl_accounts')
           .select('*')
-          .order('code')
-          .eq('type', 'revenue');
+          .order('code');
+
+        if (glAccountsError) throw glAccountsError;
         
-        if (glError) throw new Error('Fout bij ophalen van GL rekeningen: ' + glError.message);
-        setGLAccounts(glAccountsData || []);
-        
-        // Producten ophalen
-        const { data: productsData, error: productsError } = await supabase
-          .from('products')
-          .select('*')
-          .order('name');
-        
-        if (productsError) throw new Error('Fout bij ophalen van producten: ' + productsError.message);
-        setProducts(productsData || []);
-        
-        // Actuele entries voor inkomsten ophalen
-        let query = supabase
-          .from('budget_entries')
-          .select('*, gl_account:gl_account_id(*)')
-          .eq('type', 'Actual')
-          .gte('year', startYear)
-          .lte('year', endYear);
-        
-        if (period === 'month') {
-          query = query.eq('month', month);
-        } else {
-          query = query.gte('month', startMonth).lte('month', endMonth);
+        if (glAccountsData) {
+          setGlAccounts(glAccountsData);
+          
+          // Set default accounts
+          const revenueAccount = glAccountsData.find(acc => acc.code === '8000');
+          const saasAccount = glAccountsData.find(acc => acc.code === '8020');
+          const consultancyAccount = glAccountsData.find(acc => acc.code === '8010');
+          
+          if (revenueAccount) {
+            setDefaultSaasGlAccountId(revenueAccount.id);
+            setDefaultConsultancyGlAccountId(revenueAccount.id);
+          }
+          
+          if (saasAccount) {
+            setDefaultSaasGlAccountId(saasAccount.id);
+          }
+          
+          if (consultancyAccount) {
+            setDefaultConsultancyGlAccountId(consultancyAccount.id);
+          }
         }
         
-        const { data: entriesData, error: entriesError } = await query;
-        
-        if (entriesError) throw new Error('Fout bij ophalen van actuele entries: ' + entriesError.message);
-        
-        // Filter entries om alleen inkomsten te behouden
-        const revenueEntries = entriesData?.filter(entry => 
-          entry.gl_account?.type === 'revenue'
-        ) || [];
-        
-        setRevenueEntries(revenueEntries);
-        
-        // Hiërarchische structuur bouwen van inkomsten
-        const hierarchical = buildHierarchicalRevenue(glAccountsData || [], revenueEntries);
-        setHierarchicalRevenue(hierarchical);
-        
-        // Categorieën uitvouwen als er een specifieke categorie is doorgegeven
-        if (categoryParam) {
-          expandCategoryPath(categoryParam);
-        }
-        
+        // ... rest of the existing getInitialData code ...
       } catch (err) {
-        console.error('Fout bij ophalen data:', err);
-        setError(err instanceof Error ? err.message : 'Er is een onbekende fout opgetreden');
-      } finally {
-        setIsLoading(false);
+        console.error('Error getting initial data:', err);
+        setError('Kon de initiële data niet ophalen. Controleer de console voor details.');
+        setLoading(false);
       }
     };
-    
-    fetchData();
-  }, [year, month, period, categoryParam]);
-  
-  // Bouw hiërarchische structuur van inkomsten
-  const buildHierarchicalRevenue = (accounts: GLAccount[], entries: RevenueEntry[]): RevenueCategory[] => {
-    // Maak een kaart van accounts op code
-    const accountMap = new Map<string, GLAccount>();
-    accounts.forEach(account => {
-      accountMap.set(account.code, account);
-    });
-    
-    // Bereken actuele bedragen voor elke rekening
-    const categorySums = new Map<string, number>();
-    entries.forEach(entry => {
-      const account = entry.gl_account;
-      if (!account) return;
-      
-      const currentSum = categorySums.get(account.code) || 0;
-      categorySums.set(account.code, currentSum + entry.amount);
-    });
-    
-    // Vind level 1 categorieën (hoofdcategorieën)
-    const level1Categories = accounts.filter(acc => acc.level === 1);
-    
-    // Bouw de hiërarchie
-    const buildCategory = (account: GLAccount): RevenueCategory => {
-      // Vind subcategorieën
-      const subcategories = accounts
-        .filter(acc => acc.level === account.level + 1 && acc.code.startsWith(account.code))
-        .map(buildCategory);
-      
-      const actual = categorySums.get(account.code) || 0;
-      
-      return {
-        code: account.code,
-        name: account.name,
-        actual,
-        subcategories: subcategories.length > 0 ? subcategories : undefined,
-        level: account.level,
-        gl_account_id: account.id
-      };
-    };
-    
-    return level1Categories.map(buildCategory);
-  };
-  
-  // Breid het pad uit naar een specifieke categorie
-  const expandCategoryPath = (categoryCode: string) => {
-    const newExpanded = new Set<string>(expandedCategories);
-    
-    // Voor elk niveau in de code, voeg de corresponderende categorie toe aan expanded
-    for (let i = 4; i <= categoryCode.length; i += 2) {
-      const parentCode = categoryCode.substring(0, i);
-      newExpanded.add(parentCode);
-    }
-    
-    setExpandedCategories(newExpanded);
-  };
-  
-  // Toggle uitgeklapte categorie
-  const toggleCategory = (code: string) => {
-    const newExpanded = new Set(expandedCategories);
-    if (newExpanded.has(code)) {
-      newExpanded.delete(code);
-    } else {
-      newExpanded.add(code);
-    }
-    setExpandedCategories(newExpanded);
-  };
-  
-  // Event handlers
-  const handlePeriodChange = (newPeriod: Period) => {
-    setPeriod(newPeriod);
-    router.push(`/actual/revenue?year=${year}&month=${month}&period=${newPeriod}`);
-  };
-  
-  const handleDateChange = (newYear: number, newMonth: number) => {
-    setYear(newYear);
-    setMonth(newMonth);
-    router.push(`/actual/revenue?year=${newYear}&month=${newMonth}&period=${period}`);
-  };
-  
-  const handleAddRevenue = async (data: RevenueEntry) => {
-    try {
-      const { data: result, error } = await supabase
-        .from('budget_entries')
-        .insert([{
-          gl_account_id: data.gl_account_id,
-          type: 'Actual',
-          year: data.year,
-          month: data.month,
-          amount: data.amount,
-          description: data.description,
-          product_id: data.product_id,
-          client_name: data.client_name,
-          project_name: data.project_name,
-          number_of_users: data.number_of_users,
-          hours: data.hours,
-          start_date: data.start_date,
-          end_date: data.end_date,
-          hourly_rate: data.hourly_rate
-        }])
-        .select('*, gl_account:gl_account_id(*)');
-      
-      if (error) throw error;
-      
-      // Update lokale state
-      if (result) {
-        setRevenueEntries([...revenueEntries, ...result]);
-        
-        // Hiërarchie opnieuw opbouwen
-        const hierarchical = buildHierarchicalRevenue(glAccounts, [...revenueEntries, ...result]);
-        setHierarchicalRevenue(hierarchical);
-      }
-      
-      setShowForm(false);
-      setEditingEntry(null);
-      
-    } catch (err) {
-      console.error('Fout bij toevoegen inkomsten:', err);
-      setError(err instanceof Error ? err.message : 'Fout bij toevoegen inkomsten');
-    }
-  };
-  
-  const handleEditRevenue = (entry: RevenueEntry) => {
-    setEditingEntry(entry);
-    // Bepaal het type inkomsten (saas of consultancy) op basis van de GL rekening
-    if (entry.gl_account?.code.startsWith('10')) {
-      setRevenueType('saas');
-    } else if (entry.gl_account?.code.startsWith('11')) {
-      setRevenueType('consultancy');
-    }
-    setShowForm(true);
-  };
-  
-  const handleUpdateRevenue = async (data: RevenueEntry) => {
-    if (!editingEntry?.id) return;
-    
-    try {
-      const { data: result, error } = await supabase
-        .from('budget_entries')
-        .update({
-          gl_account_id: data.gl_account_id,
-          year: data.year,
-          month: data.month,
-          amount: data.amount,
-          description: data.description,
-          product_id: data.product_id,
-          client_name: data.client_name,
-          project_name: data.project_name,
-          number_of_users: data.number_of_users,
-          hours: data.hours,
-          start_date: data.start_date,
-          end_date: data.end_date,
-          hourly_rate: data.hourly_rate
-        })
-        .eq('id', editingEntry.id)
-        .select('*, gl_account:gl_account_id(*)');
-      
-      if (error) throw error;
-      
-      // Update lokale state
-      if (result) {
-        const updatedEntries = revenueEntries.map(entry => 
-          entry.id === editingEntry.id ? result[0] : entry
-        );
-        
-        setRevenueEntries(updatedEntries);
-        
-        // Hiërarchie opnieuw opbouwen
-        const hierarchical = buildHierarchicalRevenue(glAccounts, updatedEntries);
-        setHierarchicalRevenue(hierarchical);
-      }
-      
-      setShowForm(false);
-      setEditingEntry(null);
-      
-    } catch (err) {
-      console.error('Fout bij bijwerken inkomsten:', err);
-      setError(err instanceof Error ? err.message : 'Fout bij bijwerken inkomsten');
-    }
-  };
-  
-  const handleDeleteRevenue = async (entryId: string) => {
-    if (!window.confirm('Weet je zeker dat je deze inkomsten wilt verwijderen?')) return;
-    
-    try {
-      const { error } = await supabase
-        .from('budget_entries')
-        .delete()
-        .eq('id', entryId);
-      
-      if (error) throw error;
-      
-      // Update lokale state
-      const updatedEntries = revenueEntries.filter(entry => entry.id !== entryId);
-      setRevenueEntries(updatedEntries);
-      
-      // Hiërarchie opnieuw opbouwen
-      const hierarchical = buildHierarchicalRevenue(glAccounts, updatedEntries);
-      setHierarchicalRevenue(hierarchical);
-      
-    } catch (err) {
-      console.error('Fout bij verwijderen inkomsten:', err);
-      setError(err instanceof Error ? err.message : 'Fout bij verwijderen inkomsten');
-    }
-  };
-  
-  // Hulpfunctie om de entries te vinden bij een specifieke GL rekening code
-  const findEntriesForGLCode = (code: string): RevenueEntry[] => {
-    // Filter op exacte code of op codes die beginnen met deze code (voor subcategorieën)
-    const accounts = glAccounts.filter(acc => 
-      acc.code === code || (acc.level > 1 && acc.code.startsWith(code))
-    );
-    
-    const accountIds = accounts.map(acc => acc.id);
-    
-    return revenueEntries.filter(entry => accountIds.includes(entry.gl_account_id));
-  };
-  
-  // Rendercomponent voor een categorie rij
-  const renderCategoryRow = (
-    category: RevenueCategory, 
-    depth: number = 0,
-    isLastInGroup: boolean = false
-  ) => {
-    const isExpanded = expandedCategories.has(category.code);
-    const hasSubcategories = category.subcategories && category.subcategories.length > 0;
-    const indentClass = `pl-${depth * 6 + 4}`;
-    
-    // Entries voor deze categorie
-    const categoryEntries = category.level === 3 ? findEntriesForGLCode(category.code) : [];
-    
-    return (
-      <React.Fragment key={category.code}>
-        <tr className={`${depth === 0 ? 'font-medium text-gray-900 bg-gray-50' : 'text-gray-700'} hover:bg-gray-50`}>
-          <td className={`py-2 ${indentClass}`}>
-            <div className="flex items-center">
-              {hasSubcategories ? (
-                <button 
-                  onClick={() => toggleCategory(category.code)}
-                  className="p-1 mr-1 rounded-full hover:bg-gray-200 focus:outline-none"
-                >
-                  {isExpanded ? (
-                    <ChevronDownIcon className="h-4 w-4 text-gray-500" />
-                  ) : (
-                    <ChevronRightIcon className="h-4 w-4 text-gray-500" />
-                  )}
-                </button>
-              ) : (
-                <span className="w-6"></span>
-              )}
-              <span>{category.name}</span>
-            </div>
-          </td>
-          <td className="py-2 px-4 text-right font-medium">
-            {formatCurrency(category.actual)}
-          </td>
-          <td className="py-2 px-4 text-center">
-            {category.level === 3 && (
-              <button
-                onClick={() => {
-                  setEditingEntry({
-                    gl_account_id: category.gl_account_id || '',
-                    type: 'Actual',
-                    year: year,
-                    month: month,
-                    amount: 0,
-                    description: category.name
-                  });
-                  
-                  // Bepaal het type inkomsten op basis van de GL rekening code
-                  if (category.code.startsWith('10')) {
-                    setRevenueType('saas');
-                  } else if (category.code.startsWith('11')) {
-                    setRevenueType('consultancy');
-                  }
-                  
-                  setShowForm(true);
-                }}
-                className="text-indigo-600 hover:text-indigo-900"
-              >
-                <PlusIcon className="h-5 w-5" />
-              </button>
-            )}
-          </td>
-        </tr>
-        
-        {/* Subcategorieën renderen als uitgeklapt */}
-        {isExpanded && hasSubcategories && category.subcategories!.map((subcat, index) => 
-          renderCategoryRow(
-            subcat, 
-            depth + 1, 
-            index === category.subcategories!.length - 1
-          )
-        )}
-        
-        {/* Entries renderen voor level 3 categorieën als uitgeklapt */}
-        {isExpanded && category.level === 3 && categoryEntries.map((entry) => (
-          <tr key={entry.id} className="bg-gray-50 text-gray-600 hover:bg-gray-100">
-            <td className={`py-2 pl-${depth * 6 + 10}`}>
-              <div className="flex items-center">
-                <span className="text-sm italic">
-                  {entry.client_name && entry.project_name ? 
-                    `${entry.client_name} - ${entry.project_name}` : 
-                    entry.description || 'Geen omschrijving'}
-                </span>
-              </div>
-            </td>
-            <td className="py-2 px-4 text-right text-sm">
-              {formatCurrency(entry.amount)}
-            </td>
-            <td className="py-2 px-4 text-center">
-              <div className="flex justify-center space-x-2">
-                <button
-                  onClick={() => handleEditRevenue(entry)}
-                  className="text-indigo-600 hover:text-indigo-900"
-                >
-                  <PencilIcon className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => entry.id && handleDeleteRevenue(entry.id)}
-                  className="text-red-600 hover:text-red-900"
-                >
-                  <TrashIcon className="h-4 w-4" />
-                </button>
-              </div>
-            </td>
-          </tr>
-        ))}
-      </React.Fragment>
-    );
-  };
-  
-  // Loading state
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
-      </div>
-    );
-  }
-  
-  // Error state
-  if (error) {
-    return (
-      <div className="p-6 bg-red-50 border border-red-200 rounded-lg mt-6">
-        <h3 className="text-lg font-medium text-red-800">Er is een fout opgetreden</h3>
-        <p className="mt-2 text-red-700">{error}</p>
-        <button 
-          onClick={() => window.location.reload()}
-          className="mt-4 px-4 py-2 bg-red-100 text-red-800 rounded-md hover:bg-red-200"
-        >
-          Probeer opnieuw
-        </button>
-      </div>
-    );
-  }
-  
-  // Bereken totaal van alle inkomsten
-  const totalRevenue = hierarchicalRevenue.reduce((total, category) => total + category.actual, 0);
+
+    getInitialData();
+  }, []);
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 space-y-4 md:space-y-0">
-        <h1 className="text-2xl font-bold text-gray-900">Actueel - Inkomsten</h1>
+    <MainLayout>
+      <div className="container mx-auto p-4">
+        <h1 className="text-2xl font-bold mb-6 text-gray-900">Werkelijke Inkomsten</h1>
         
-        <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
-          <PeriodSelector 
-            period={period}
-            year={year}
-            month={month}
-            onPeriodChange={handlePeriodChange}
-            onDateChange={handleDateChange}
-          />
+        {/* Tabelstructuur debugging info */}
+        {tableStructure && (
+          <div className="mb-4 p-2 bg-white border border-gray-200 rounded text-sm text-gray-800">
+            <p><strong>Tabelstructuur gevonden:</strong> {Object.keys(tableStructure).join(', ')}</p>
+            {defaultOrganizationId && <p><strong>Organization ID:</strong> {defaultOrganizationId}</p>}
         </div>
-      </div>
-      
-      <div className="bg-white shadow rounded-lg mb-8">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-lg font-medium text-gray-900">Actuele inkomsten</h2>
-          <div className="flex space-x-2">
-            <div className="flex space-x-2">
+        )}
+
+        {/* Foutmelding of succes bericht */}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-800 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-100 border border-green-400 text-green-800 px-4 py-3 rounded mb-4">
+            {success}
+          </div>
+        )}
+        
+        {/* Formulier voor het toevoegen van omzet */}
+        <div className="bg-white rounded shadow p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-4 text-gray-900">Nieuwe Omzet Registreren</h2>
+          
+          <form onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="product" className="block text-sm font-medium text-gray-900">
+                  Product (optioneel)
+                </label>
+                <select
+                  id="product"
+                  value={selectedProductId}
+                  onChange={(e) => handleProductSelect(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-gray-900"
+                >
+                  <option value="">-- Selecteer een product --</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.name} - €{parseFloat(product.price.toString()).toFixed(2)}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-sm text-gray-700">
+                  Selecteer een product om automatisch de prijs in te vullen
+                </p>
+              </div>
+              
+              <div>
+                <label htmlFor="amount" className="block text-sm font-medium text-gray-900">
+                  Bedrag (€)
+                </label>
+                <input
+                  type="number"
+                  id="amount"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-gray-900"
+                  min="0"
+                  step="0.01"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label htmlFor="date" className="block text-sm font-medium text-gray-900">
+                  Datum
+                </label>
+                <input
+                  type="date"
+                  id="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-gray-900"
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="number_of_users" className="block text-sm font-medium text-gray-900">
+                  {isConsultancyProduct ? 'Aantal uren' : 'Aantal gebruikers (alleen voor SaaS)'}
+                </label>
+                <input
+                  type="number"
+                  id="number_of_users"
+                  value={numberOfUsers}
+                  onChange={(e) => setNumberOfUsers(e.target.value)}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-gray-900"
+                  min="1"
+                  placeholder={isConsultancyProduct ? "Vul aantal uren in" : "Vul in voor SaaS producten"}
+                />
+              </div>
+            </div>
+            
+            {/* Add total calculation display */}
+            {amount && numberOfUsers && (
+              <div className="col-span-2 mt-3 p-3 bg-gray-50 rounded border border-gray-200">
+                <p className="text-gray-900 font-medium">Totaal: {calculatedTotal}</p>
+              </div>
+            )}
+            
+            <div className="mt-6 flex space-x-3">
               <button
-                onClick={() => {
-                  setRevenueType('saas');
-                  setEditingEntry(null);
-                  setShowForm(!showForm);
-                }}
-                className={`inline-flex items-center px-3 py-2 border text-sm leading-4 font-medium rounded-md ${
-                  showForm && revenueType === 'saas' 
-                    ? 'border-indigo-500 text-indigo-700 bg-indigo-50' 
-                    : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
-                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                type="submit"
+                disabled={submitting}
+                className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded shadow transition"
               >
-                {!showForm && <PlusIcon className="h-4 w-4 mr-1" />} SaaS Inkomsten
+                {submitting ? 'Bezig met opslaan...' : 'Opslaan'}
               </button>
               
               <button
-                onClick={() => {
-                  setRevenueType('consultancy');
-                  setEditingEntry(null);
-                  setShowForm(!showForm);
-                }}
-                className={`inline-flex items-center px-3 py-2 border text-sm leading-4 font-medium rounded-md ${
-                  showForm && revenueType === 'consultancy' 
-                    ? 'border-indigo-500 text-indigo-700 bg-indigo-50' 
-                    : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
-                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                type="button"
+                onClick={resetForm}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-900 py-2 px-4 rounded shadow transition"
               >
-                {!showForm && <PlusIcon className="h-4 w-4 mr-1" />} Consultancy Inkomsten
+                Annuleren
               </button>
             </div>
-            
-            <button
-              onClick={() => window.location.reload()}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-            >
-              <ArrowPathIcon className="h-4 w-4 mr-1" />
-              Vernieuwen
-            </button>
-          </div>
+          </form>
         </div>
         
-        {showForm && (
-          <div className="p-6 border-b border-gray-200 bg-gray-50">
-            <h3 className="text-md font-medium text-gray-900 mb-4">
-              {editingEntry?.id ? 'Inkomsten bewerken' : `Nieuwe ${revenueType === 'saas' ? 'SaaS' : 'Consultancy'} inkomsten toevoegen`}
-            </h3>
-            <RevenueForm 
-              type={revenueType}
-              products={products}
-              glAccounts={glAccounts.filter(acc => 
-                revenueType === 'saas' 
-                  ? acc.code.startsWith('10') // SaaS rekeningen
-                  : acc.code.startsWith('11') // Consultancy rekeningen
-              )}
-              currentYear={year}
-              currentMonth={month}
-              editEntry={editingEntry}
-              onSubmit={editingEntry?.id ? handleUpdateRevenue : handleAddRevenue}
-              onCancel={() => {
-                setShowForm(false);
-                setEditingEntry(null);
-              }}
-            />
-          </div>
-        )}
-        
-        <div className="overflow-x-auto">
-          <table className="min-w-full">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Categorie
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Bedrag
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                  Acties
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {hierarchicalRevenue.map((category, index) => 
-                renderCategoryRow(
-                  category, 
-                  0, 
-                  index === hierarchicalRevenue.length - 1
-                )
-              )}
-              <tr className="bg-gray-100 font-bold">
-                <td className="px-4 py-3 text-gray-900">Totaal Inkomsten</td>
-                <td className="px-4 py-3 text-right text-gray-900">{formatCurrency(totalRevenue)}</td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
+        {/* Tabel met bestaande omzet */}
+        <div className="bg-white rounded shadow overflow-hidden">
+          <h2 className="text-xl font-semibold p-4 border-b text-gray-900">Geregistreerde Omzet</h2>
+          
+          {loading ? (
+            <div className="p-4 text-center">
+              <p className="text-gray-900">Gegevens laden...</p>
+            </div>
+          ) : revenueEntries.length === 0 ? (
+            <div className="p-4 text-center">
+              <p className="text-gray-900">Geen omzet gevonden. Gebruik het formulier hierboven om omzet te registreren.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-900 uppercase tracking-wider">Datum</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-900 uppercase tracking-wider">Omschrijving</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-900 uppercase tracking-wider">Product</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-900 uppercase tracking-wider">Aantal gebruikers</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-900 uppercase tracking-wider">Bedrag</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {revenueEntries.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                        {new Date(entry.entry_date).toLocaleDateString('nl-NL')}
+                      </td>
+                      <td className="px-6 py-4 text-gray-900">
+                        {entry.description}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                        {entry.product ? entry.product.name : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                        {entry.number_of_users || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
+                        €{parseFloat(entry.amount.toString()).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan={4} className="px-6 py-4 text-right font-medium text-gray-900">
+                      Totaal:
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap font-bold text-gray-900">
+                      €{revenueEntries.reduce((sum, entry) => sum + parseFloat(entry.amount.toString() || '0'), 0).toFixed(2)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </MainLayout>
   );
 } 

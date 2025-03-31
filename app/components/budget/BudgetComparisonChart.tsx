@@ -39,7 +39,7 @@ export default function BudgetComparisonChart({
     } else if (value >= 1000) {
       return `${(value / 1000).toFixed(0)}K`;
     }
-    return value;
+    return value.toString();
   };
 
   const CustomTooltip = ({ active, payload, label }: any) => {

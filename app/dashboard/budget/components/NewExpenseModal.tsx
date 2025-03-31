@@ -3,8 +3,7 @@
 import { Fragment, useState } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/app/lib/supabase';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 
 interface NewExpenseModalProps {
   open: boolean;
@@ -49,25 +48,9 @@ export default function NewExpenseModal({ open, setOpen, year, scenarioId, onExp
     setLoading(true);
     setError(null);
 
-    const supabase = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const supabase = getBrowserSupabaseClient();
 
     try {
-      // Get the current user's organization ID
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not found');
-
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('organization_id')
-        .eq('id', user.id)
-        .single();
-
-      if (profileError) throw profileError;
-      if (!profile?.organization_id) throw new Error('No organization found');
-
       // Create the new expense item
       const { error: insertError } = await supabase
         .from('budget_expenses')
@@ -77,8 +60,7 @@ export default function NewExpenseModal({ open, setOpen, year, scenarioId, onExp
           cost_category: costCategory,
           sub_category: subCategory || null,
           amount: parseFloat(amount),
-          notes: notes || null,
-          organization_id: profile.organization_id
+          notes: notes || null
         });
 
       if (insertError) throw insertError;

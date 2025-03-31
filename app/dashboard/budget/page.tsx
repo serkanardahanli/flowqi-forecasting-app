@@ -5,10 +5,8 @@ import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import type { Database } from '@/app/lib/database.types';
 import ExpensesTable from './components/ExpensesTable';
 import IncomeTable from './components/IncomeTable';
-import { useRouter } from 'next/navigation';
 
 export default function BudgetPage() {
-  const router = useRouter();
   const [year, setYear] = useState(new Date().getFullYear());
   const [scenarioId, setScenarioId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'income' | 'expenses'>('income');
@@ -24,75 +22,35 @@ export default function BudgetPage() {
         const supabase = getBrowserSupabaseClient();
         console.log('Supabase client obtained');
 
-        // Check authentication first
-        const { data: { session }, error: authError } = await supabase.auth.getSession();
-        
-        console.log('Auth check result:', {
-          hasSession: !!session,
-          userId: session?.user?.id || 'none',
-          authError: authError?.message || 'none'
-        });
-        
-        if (authError) {
-          throw new Error(`Authenticatie fout: ${authError.message}`);
-        }
-
-        if (!session?.user) {
-          console.log('No session found, redirecting to signin');
-          router.push('/auth/signin');
-          return;
-        }
-
-        // Get organization for the logged-in user
-        const { data: orgUser, error: orgError } = await supabase
-          .from('organization_users')
-          .select('organization_id')
-          .eq('user_id', session.user.id)
-          .single();
-
-        console.log('Organization query result:', {
-          hasOrgUser: !!orgUser,
-          orgId: orgUser?.organization_id || 'none',
-          orgError: orgError?.message || 'none'
-        });
-
-        if (orgError) {
-          console.error('Organization error:', orgError);
-          throw new Error('Kon organisatie niet ophalen');
-        }
-
-        if (!orgUser?.organization_id) {
-          throw new Error('Geen organisatie gevonden voor deze gebruiker');
-        }
-
-        // Get default scenario for the organization
-        const { data: scenario, error: scenarioError } = await supabase
+        // Get or create default scenario
+        const { data: scenarios, error: scenariosError } = await supabase
           .from('scenarios')
           .select('id')
-          .eq('organization_id', orgUser.organization_id)
           .eq('is_default', true)
-          .single();
-
-        console.log('Scenario query result:', {
-          hasScenario: !!scenario,
-          scenarioId: scenario?.id || 'none',
-          scenarioError: scenarioError?.message || 'none'
+          .limit(1);
+        
+        console.log('Scenarios query result:', {
+          count: scenarios?.length || 0,
+          scenariosError: scenariosError?.message || 'none'
         });
 
-        if (scenarioError && scenarioError.code !== 'PGRST116') { // Ignore "no rows returned" error
-          console.error('Scenario error:', scenarioError);
-          throw new Error('Kon scenario niet ophalen');
-        }
+        if (scenariosError) throw scenariosError;
 
-        if (!scenario) {
+        let finalScenarioId = null;
+        
+        if (scenarios && scenarios.length > 0) {
+          // Use existing default scenario
+          finalScenarioId = scenarios[0].id;
+          console.log('Using existing default scenario:', finalScenarioId);
+        } else {
           // Create default scenario if none exists
           console.log('Creating default scenario');
           const { data: newScenario, error: createError } = await supabase
             .from('scenarios')
             .insert({
-              organization_id: orgUser.organization_id,
               name: 'Standaard Scenario',
-              is_default: true
+              is_default: true,
+              organization_id: '00000000-0000-0000-0000-000000000000'
             })
             .select()
             .single();
@@ -103,18 +61,13 @@ export default function BudgetPage() {
             createError: createError?.message || 'none'
           });
 
-          if (createError) {
-            console.error('Create scenario error:', createError);
-            throw new Error('Kon geen nieuw scenario aanmaken');
-          }
+          if (createError) throw createError;
+          finalScenarioId = newScenario.id;
+        }
 
-          if (isMounted) {
-            console.log('Setting scenario ID to newly created:', newScenario.id);
-            setScenarioId(newScenario.id);
-          }
-        } else if (isMounted) {
-          console.log('Setting scenario ID to existing:', scenario.id);
-          setScenarioId(scenario.id);
+        if (isMounted) {
+          console.log('Setting scenario ID to:', finalScenarioId);
+          setScenarioId(finalScenarioId);
         }
 
         console.log('Budget page initialization completed successfully');
@@ -143,7 +96,7 @@ export default function BudgetPage() {
     return () => {
       isMounted = false;
     };
-  }, [router]);
+  }, []);
 
   if (loading) {
     return (

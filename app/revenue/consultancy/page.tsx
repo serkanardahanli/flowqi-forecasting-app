@@ -1,14 +1,13 @@
-'use client';
+"use client";
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Database } from '@/types/supabase';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
+import type { Database } from '@/types/supabase';
 import { Product, PlannedConsultancyRevenue } from '@/types/models';
 import { PencilIcon, TrashIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { formatCurrency } from '@/lib/utils';
 
 export default function ConsultancyRevenuePage() {
-  const supabase = createClientComponentClient<Database>();
   const [products, setProducts] = useState<Product[]>([]);
   const [plannedRevenue, setPlannedRevenue] = useState<PlannedConsultancyRevenue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,68 +23,25 @@ export default function ConsultancyRevenuePage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const getOrganizationId = async (): Promise<string | null> => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return null;
-
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('organization_id')
-      .eq('id', session.user.id)
-      .single();
-
-    if (error || !profile?.organization_id) {
-      console.error('Error getting organization ID:', error?.message || 'No organization found');
-      return null;
-    }
-
-    return profile.organization_id;
-  };
-
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const organizationId = await getOrganizationId();
-      if (!organizationId) {
-        setError('Geen organisatie gevonden. Log opnieuw in of neem contact op met ondersteuning.');
-        setLoading(false);
-        return;
-      }
-
-      // Fetch products (consultancy type)
-      const { data: productsData, error: productsError } = await supabase
-        .from('products')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .eq('type', 'Consultancy');
-
-      if (productsError) {
-        throw new Error(`Error fetching products: ${productsError.message}`);
-      }
-
-      // Fetch planned consultancy revenue
-      const { data: revenueData, error: revenueError } = await supabase
-        .from('planned_consultancy_revenue')
-        .select('*')
-        .eq('organization_id', organizationId);
-
-      if (revenueError) {
-        throw new Error(`Error fetching planned revenue: ${revenueError.message}`);
-      }
-
-      setProducts(productsData || []);
-      setPlannedRevenue(revenueData || []);
-    } catch (err) {
-      console.error('Error:', err);
-      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van gegevens');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const supabase = getBrowserSupabaseClient();
+        const { data, error } = await supabase
+          .from('planned_consultancy_revenue')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setPlannedRevenue(data || []);
+      } catch (err) {
+        console.error('Error fetching consultancy revenue data:', err);
+        setError('Er is een fout opgetreden bij het ophalen van de consultancy omzetgegevens');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchData();
   }, []);
 
@@ -116,37 +72,27 @@ export default function ConsultancyRevenuePage() {
     setError(null);
 
     try {
-      const organizationId = await getOrganizationId();
-      if (!organizationId) {
-        setError('Geen organisatie gevonden. Log opnieuw in of neem contact op met ondersteuning.');
-        return;
-      }
-
-      const newEntry = {
-        ...formData,
-        organization_id: organizationId,
-      } as PlannedConsultancyRevenue;
-
+      const supabase = getBrowserSupabaseClient();
       if (editing) {
-        // Update existing entry
         const { error } = await supabase
           .from('planned_consultancy_revenue')
-          .update(newEntry)
+          .update(formData)
           .eq('id', editing);
-
-        if (error) throw new Error(`Error updating entry: ${error.message}`);
+        if (error) throw error;
       } else {
-        // Create new entry
         const { error } = await supabase
           .from('planned_consultancy_revenue')
-          .insert([newEntry]);
-
-        if (error) throw new Error(`Error creating entry: ${error.message}`);
+          .insert([formData]);
+        if (error) throw error;
       }
-
+      setShowModal(false);
       // Refresh data
-      await fetchData();
-      handleCloseModal();
+      const { data, error } = await supabase
+        .from('planned_consultancy_revenue')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setPlannedRevenue(data || []);
     } catch (err) {
       console.error('Error:', err);
       setError(err instanceof Error ? err.message : 'Er is een fout opgetreden');
@@ -170,15 +116,20 @@ export default function ConsultancyRevenuePage() {
     if (!confirm('Weet je zeker dat je deze geplande omzet wilt verwijderen?')) return;
 
     try {
+      const supabase = getBrowserSupabaseClient();
       const { error } = await supabase
         .from('planned_consultancy_revenue')
         .delete()
         .eq('id', id);
-
-      if (error) throw new Error(`Error deleting entry: ${error.message}`);
-
+      if (error) throw error;
+      
       // Refresh data
-      await fetchData();
+      const { data, error: fetchError } = await supabase
+        .from('planned_consultancy_revenue')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (fetchError) throw fetchError;
+      setPlannedRevenue(data || []);
     } catch (err) {
       console.error('Error:', err);
       setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het verwijderen');
@@ -223,6 +174,14 @@ export default function ConsultancyRevenuePage() {
     
     return Math.max(1, months) * (formData.hourly_rate || 0) * (formData.hours_per_month || 0);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">

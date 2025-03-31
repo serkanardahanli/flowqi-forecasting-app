@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
-import { Database } from '@/app/lib/supabase';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -17,6 +16,9 @@ const productSchema = z.object({
     z.number().min(0, 'Price must be a positive number')
   ),
   category: z.string().optional(),
+  type: z.enum(['SaaS', 'Consultancy']),
+  is_required: z.boolean().default(false),
+  gl_account_id: z.string().optional(),
 });
 
 type ProductFormValues = z.infer<typeof productSchema>;
@@ -36,41 +38,28 @@ export default function NewProductPage() {
       description: '',
       price: 0,
       category: '',
+      type: 'SaaS',
+      is_required: false,
+      gl_account_id: '',
     },
   });
   
   const onSubmit = async (data: ProductFormValues) => {
     setLoading(true);
     
-    const supabase = createClient<Database>(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
+    const supabase = getBrowserSupabaseClient();
     
     try {
-      // First get the user and their organization
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('organization_id')
-        .eq('id', userData.user.id)
-        .single();
-      
-      if (profileError) throw profileError;
-      
-      if (!profileData.organization_id) {
-        throw new Error('No organization found. Please set up your organization first.');
-      }
-      
       // Create the product
       const { error: insertError } = await supabase.from('products').insert({
         name: data.name,
         description: data.description || null,
         price: data.price,
         category: data.category || null,
-        organization_id: profileData.organization_id,
+        organization_id: '00000000-0000-0000-0000-000000000000',
+        type: data.type,
+        is_required: data.is_required,
+        gl_account_id: data.gl_account_id || null
       });
       
       if (insertError) throw insertError;
@@ -160,6 +149,50 @@ export default function NewProductPage() {
                 className="block w-full rounded-md border-gray-200 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
               />
               {errors.category && <p className="mt-1 text-xs text-red-600">{errors.category.message}</p>}
+            </div>
+          </div>
+          
+          <div>
+            <label htmlFor="type" className="block text-sm font-medium text-gray-700">
+              Type *
+            </label>
+            <div className="mt-1">
+              <select
+                id="type"
+                {...register('type')}
+                className="block w-full rounded-md border-gray-200 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+              >
+                <option value="SaaS">SaaS</option>
+                <option value="Consultancy">Consultancy</option>
+              </select>
+              {errors.type && <p className="mt-1 text-xs text-red-600">{errors.type.message}</p>}
+            </div>
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <input
+              id="is_required"
+              type="checkbox"
+              {...register('is_required')}
+              className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <label htmlFor="is_required" className="text-sm font-medium text-gray-700">
+              Required product
+            </label>
+          </div>
+          
+          <div>
+            <label htmlFor="gl_account_id" className="block text-sm font-medium text-gray-700">
+              GL Account ID
+            </label>
+            <div className="mt-1">
+              <input
+                id="gl_account_id"
+                type="text"
+                {...register('gl_account_id')}
+                className="block w-full rounded-md border-gray-200 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm"
+              />
+              {errors.gl_account_id && <p className="mt-1 text-xs text-red-600">{errors.gl_account_id.message}</p>}
             </div>
           </div>
           

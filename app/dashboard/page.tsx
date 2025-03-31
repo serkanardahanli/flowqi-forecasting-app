@@ -1,9 +1,12 @@
 "use client";
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
+import { getBrowserSupabaseClient } from '@/app/lib/supabase';
+import type { Database } from '@/types/supabase';
+import type { Forecast, BudgetScenario } from '@/types/forecast';
+import { useRouter } from 'next/navigation';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -59,6 +62,9 @@ interface FinancialMetrics {
   expensesChange: number;
   profitChange: number;
   marginChange: number;
+  plannedRevenue: number;
+  plannedExpenses: number;
+  plannedProfit: number;
 }
 
 interface FinancialData {
@@ -95,10 +101,11 @@ const consolidateFinancialData = (entries: any[], type: 'revenue' | 'expense'): 
   });
 };
 
-// Dashboard component
-export default function DashboardPage() {
+export default function Dashboard() {
+  const router = useRouter();
+  const [forecasts, setForecasts] = useState<Forecast[]>([]);
+  const [scenarios, setScenarios] = useState<BudgetScenario[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [revenueData, setRevenueData] = useState<FinancialData[]>([]);
   const [expensesData, setExpensesData] = useState<FinancialData[]>([]);
   const [metrics, setMetrics] = useState<FinancialMetrics>({
@@ -109,290 +116,342 @@ export default function DashboardPage() {
     revenueChange: 0,
     expensesChange: 0,
     profitChange: 0,
-    marginChange: 0
+    marginChange: 0,
+    plannedRevenue: 0,
+    plannedExpenses: 0,
+    plannedProfit: 0
   });
-  
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
-    console.log('Dashboard page loading...');
-    
-    const loadData = async () => {
+    const fetchData = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
-        setError(null);
+        const supabase = getBrowserSupabaseClient();
         
-        const supabase = createClientComponentClient();
-        
-        // Gebruik getUser voor betere beveiliging
-        const { data: userData, error: userError } = await supabase.auth.getUser();
-        
-        if (userError || !userData.user) {
-          console.error("Auth error:", userError);
-          setError("Kon niet authenticeren met Supabase");
-          setLoading(false);
-          return;
+        // Haal werkelijke inkomsten op
+        const { data: actualRevenueData, error: actualRevenueError } = await supabase
+          .from('actual_entries')
+          .select('*')
+          .eq('entry_type', 'revenue')
+          .order('created_at', { ascending: false });
+          
+        if (actualRevenueError) {
+          throw new Error(`Error fetching actual revenue: ${actualRevenueError.message}`);
         }
         
-        console.log("Authenticated as:", userData.user.email);
+        // Haal werkelijke uitgaven op
+        const { data: actualExpensesData, error: actualExpensesError } = await supabase
+          .from('actual_entries')
+          .select('*')
+          .eq('entry_type', 'expense')
+          .order('created_at', { ascending: false });
+          
+        if (actualExpensesError) {
+          throw new Error(`Error fetching actual expenses: ${actualExpensesError.message}`);
+        }
         
-        // Controleer de structuur van de budget_entries tabel
-        console.log("Checking budget_entries table structure...");
-        const { data: sampleEntries, error: sampleError } = await supabase
+        // Haal begrote inkomsten op
+        const { data: budgetRevenueData, error: budgetRevenueError } = await supabase
           .from('budget_entries')
           .select('*')
-          .limit(5);
+          .eq('type', 'revenue')
+          .order('created_at', { ascending: false });
           
-        if (sampleError) {
-          console.error("Sample entries fetch error:", sampleError);
-        } else {
-          console.log("Sample budget entries:", sampleEntries);
-          // Verzamel unieke types om te zien welke categorieën we hebben
-          const uniqueTypes = Array.from(new Set(sampleEntries.map(entry => entry.type)));
-          console.log("Available entry types:", uniqueTypes);
+        if (budgetRevenueError) {
+          throw new Error(`Error fetching budget revenue: ${budgetRevenueError.message}`);
         }
         
-        // Haal de laatste 10 revenue entries op
-        console.log("Fetching revenue data...");
-        const { data: revenueEntries, error: revenueError } = await supabase
+        // Haal begrote uitgaven op
+        const { data: budgetExpensesData, error: budgetExpensesError } = await supabase
           .from('budget_entries')
           .select('*')
-          .order('created_at', { ascending: false })
-          .limit(10);
+          .eq('type', 'expense')
+          .order('created_at', { ascending: false });
           
-        if (revenueError) {
-          console.error("Revenue fetch error:", revenueError);
-          setError("Kon omzetgegevens niet ophalen");
-          setLoading(false);
-          return;
+        if (budgetExpensesError) {
+          throw new Error(`Error fetching budget expenses: ${budgetExpensesError.message}`);
         }
         
-        const processedRevenueData = consolidateFinancialData(revenueEntries || [], 'revenue');
+        // Verwerk de gegevens voor het dashboard
+        const processedRevenueData = consolidateFinancialData(actualRevenueData || [], 'revenue');
+        const processedExpensesData = consolidateFinancialData(actualExpensesData || [], 'expense');
+        
         setRevenueData(processedRevenueData);
-        
-        // Haal de uitgaven op met een robuuste strategie
-        console.log("Fetching expenses data with robust strategy...");
-        // Probeer eerst de expenses tabel
-        let expensesData: FinancialData[] = [];
-        let fetchSuccessful = false;
-        
-        try {
-          const { data: expenseEntries, error: expenseError } = await supabase
-            .from('expenses')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(10);
-            
-          if (!expenseError && expenseEntries && expenseEntries.length > 0) {
-            console.log("Successfully fetched data from expenses table:", expenseEntries);
-            expensesData = consolidateFinancialData(expenseEntries, 'expense');
-            fetchSuccessful = true;
-          } else {
-            console.log("No data found in expenses table, error:", expenseError);
-          }
-        } catch (err) {
-          console.error("Error fetching from expenses table:", err);
-        }
-        
-        // Als de expenses tabel niet werkt, probeer budget_entries met type=expense
-        if (!fetchSuccessful) {
-          console.log("Trying budget_entries table with type='expense'...");
-          try {
-            const { data: budgetExpenses, error: budgetError } = await supabase
-              .from('budget_entries')
-              .select('*')
-              .eq('type', 'expense')
-              .order('created_at', { ascending: false })
-              .limit(10);
-              
-            if (!budgetError && budgetExpenses && budgetExpenses.length > 0) {
-              console.log("Successfully fetched expenses from budget_entries:", budgetExpenses);
-              expensesData = consolidateFinancialData(budgetExpenses, 'expense');
-              fetchSuccessful = true;
-            } else {
-              console.log("No expense data found in budget_entries, error:", budgetError);
-            }
-          } catch (err) {
-            console.error("Error fetching expenses from budget_entries:", err);
-          }
-        }
-        
-        // Als laatste redmiddel, gebruik gewoon willekeurig gegenereerde testdata
-        if (!fetchSuccessful || expensesData.length === 0) {
-          console.log("Using generated test data for expenses as fallback");
-          expensesData = [
-            {
-              id: 'test-1',
-              created_at: new Date().toISOString(),
-              gl_account_id: '1',
-              amount: 500,
-              month: new Date().getMonth() + 1,
-              year: new Date().getFullYear(),
-              type: 'expense',
-              description: 'Huur'
-            },
-            {
-              id: 'test-2',
-              created_at: new Date().toISOString(),
-              gl_account_id: '2',
-              amount: 250,
-              month: new Date().getMonth() + 1,
-              year: new Date().getFullYear(),
-              type: 'expense',
-              description: 'Software'
-            }
-          ];
-        }
-        
-        setExpensesData(expensesData);
+        setExpensesData(processedExpensesData);
         
         // Bereken de totale inkomsten en uitgaven voor de dashboard metrics
         const totalRevenue = processedRevenueData.reduce((sum, entry) => sum + (entry.amount || 0), 0);
-        const totalExpenses = expensesData.reduce((sum, entry) => sum + (entry.amount || 0), 0);
+        const totalExpenses = processedExpensesData.reduce((sum, entry) => sum + (entry.amount || 0), 0);
         const profit = totalRevenue - totalExpenses;
         const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
+
+        // Bereken de geplande waarden
+        const plannedRevenue = budgetRevenueData?.reduce((sum, entry) => sum + (entry.amount || 0), 0) || 0;
+        const plannedExpenses = budgetExpensesData?.reduce((sum, entry) => sum + (entry.amount || 0), 0) || 0;
+        const plannedProfit = plannedRevenue - plannedExpenses;
+        
+        // Bereken de veranderingen ten opzichte van gepland
+        const revenueChange = plannedRevenue > 0 ? ((totalRevenue - plannedRevenue) / plannedRevenue) * 100 : 0;
+        const expensesChange = plannedExpenses > 0 ? ((totalExpenses - plannedExpenses) / plannedExpenses) * 100 : 0;
+        const profitChange = plannedProfit !== 0 ? ((profit - plannedProfit) / Math.abs(plannedProfit)) * 100 : 0;
+        const marginChange = margin - (plannedRevenue > 0 ? (plannedProfit / plannedRevenue) * 100 : 0);
         
         setMetrics({
           revenue: totalRevenue,
           expenses: totalExpenses,
           profit: profit,
           margin: margin,
-          revenueChange: 12, // Voorbeeld waarden
-          expensesChange: 8,
-          profitChange: 15,
-          marginChange: 3
+          revenueChange: revenueChange,
+          expensesChange: expensesChange,
+          profitChange: profitChange,
+          marginChange: marginChange,
+          plannedRevenue: plannedRevenue,
+          plannedExpenses: plannedExpenses,
+          plannedProfit: plannedProfit
         });
-        
-        setLoading(false);
-      } catch (err) {
-        console.error("Dashboard data loading error:", err);
-        setError("Er is een fout opgetreden bij het laden van de gegevens");
+      } catch (error) {
+        console.error('Error fetching data:', error instanceof Error ? error.message : String(error));
+        setError('Er is een fout opgetreden bij het ophalen van gegevens voor het dashboard');
+      } finally {
         setLoading(false);
       }
     };
     
-    loadData();
+    fetchData();
   }, []);
-  
-  // Formatteer valuta voor weergave
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(amount);
-  };
-  
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6">
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
-          <p>{error}</p>
-        </div>
-      )}
+    <div className="container mx-auto px-4 py-8">
+      <h1 className="text-3xl font-bold mb-8 text-gray-900">Dashboard</h1>
       
-      <div className="bg-white shadow overflow-hidden sm:rounded-lg mb-6">
-        <div className="px-4 py-5 sm:px-6">
-          <h1 className="text-xl font-semibold">Dashboard</h1>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500">
-            Welkom op het dashboard van FlowQi
-          </p>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {/* Revenue KPI */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex justify-between items-start mb-4">
+            <h3 className="text-sm font-medium text-gray-500">Omzet</h3>
+            <div className={`flex items-center px-2 py-1 rounded-full text-xs font-semibold ${metrics.revenueChange >= 0 ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'}`}>
+              {metrics.revenueChange >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
+              {Math.abs(metrics.revenueChange)}%
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-gray-900">{formatCurrency(metrics.revenue)}</div>
+          <div className="mt-2 text-sm text-gray-600">Totaal omzet dit jaar</div>
         </div>
-        
-        <div className="border-t border-gray-200 px-4 py-5 sm:p-6">
-          {loading ? (
-            <p className="text-center text-gray-600">Gegevens laden...</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="text-lg font-medium text-gray-900">Omzet</h3>
-                <p className="mt-1 text-3xl font-semibold text-gray-900">{formatCurrency(metrics.revenue)}</p>
-                <div className="mt-1 flex items-center text-sm text-green-600">
-                  <ArrowUpIcon />
-                  <span>{metrics.revenueChange}% t.o.v. vorige maand</span>
+
+        {/* Expenses KPI */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex justify-between items-start mb-4">
+            <h3 className="text-sm font-medium text-gray-500">Uitgaven</h3>
+            <div className={`flex items-center px-2 py-1 rounded-full text-xs font-semibold ${metrics.expensesChange <= 0 ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'}`}>
+              {metrics.expensesChange <= 0 ? <ArrowDownIcon /> : <ArrowUpIcon />}
+              {Math.abs(metrics.expensesChange)}%
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-gray-900">{formatCurrency(metrics.expenses)}</div>
+          <div className="mt-2 text-sm text-gray-600">Totaal uitgaven dit jaar</div>
+        </div>
+
+        {/* Profit KPI */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex justify-between items-start mb-4">
+            <h3 className="text-sm font-medium text-gray-500">Resultaat</h3>
+            <div className={`flex items-center px-2 py-1 rounded-full text-xs font-semibold ${metrics.profitChange >= 0 ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'}`}>
+              {metrics.profitChange >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
+              {Math.abs(metrics.profitChange)}%
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-gray-900">{formatCurrency(metrics.profit)}</div>
+          <div className="mt-2 text-sm text-gray-600">Netto resultaat dit jaar</div>
+        </div>
+
+        {/* Margin KPI */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex justify-between items-start mb-4">
+            <h3 className="text-sm font-medium text-gray-500">Marge</h3>
+            <div className={`flex items-center px-2 py-1 rounded-full text-xs font-semibold ${metrics.marginChange >= 0 ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'}`}>
+              {metrics.marginChange >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
+              {Math.abs(metrics.marginChange)}%
+            </div>
+          </div>
+          <div className="text-2xl font-bold text-gray-900">{metrics.margin.toFixed(1)}%</div>
+          <div className="mt-2 text-sm text-gray-600">Operationele marge</div>
+        </div>
+      </div>
+
+      {/* Financial Overview */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        {/* Revenue vs Expenses Chart */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Omzet vs Uitgaven</h2>
+          <div className="h-64">
+            <Bar
+              data={{
+                labels: ['Omzet', 'Uitgaven', 'Resultaat'],
+                datasets: [
+                  {
+                    label: 'Bedrag in €',
+                    data: [metrics.revenue, metrics.expenses, metrics.profit],
+                    backgroundColor: [
+                      'rgba(34, 197, 94, 0.5)',
+                      'rgba(239, 68, 68, 0.5)',
+                      'rgba(59, 130, 246, 0.5)'
+                    ],
+                    borderColor: [
+                      'rgb(34, 197, 94)',
+                      'rgb(239, 68, 68)',
+                      'rgb(59, 130, 246)'
+                    ],
+                    borderWidth: 1
+                  }
+                ]
+              }}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: {
+                    beginAtZero: true,
+                    ticks: {
+                      callback: (value) => formatCurrency(Number(value))
+                    }
+                  }
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Planned vs Actual Comparison */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Gepland vs Werkelijk</h2>
+          <div className="space-y-6">
+            {/* Revenue Comparison */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-medium text-gray-500">Omzet</h3>
+                <div className={`flex items-center px-2 py-1 rounded-full text-xs font-semibold ${metrics.revenueChange >= 0 ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'}`}>
+                  {metrics.revenueChange >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
+                  {Math.abs(metrics.revenueChange)}%
                 </div>
               </div>
-              
-              <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="text-lg font-medium text-gray-900">Uitgaven</h3>
-                <p className="mt-1 text-3xl font-semibold text-gray-900">{formatCurrency(metrics.expenses)}</p>
-                <div className="mt-1 flex items-center text-sm text-red-600">
-                  <ArrowUpIcon />
-                  <span>{metrics.expensesChange}% t.o.v. vorige maand</span>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-500">Gepland</p>
+                  <p className="text-lg font-semibold text-gray-900">{formatCurrency(metrics.plannedRevenue)}</p>
                 </div>
-              </div>
-              
-              <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="text-lg font-medium text-gray-900">Winst</h3>
-                <p className="mt-1 text-3xl font-semibold text-gray-900">{formatCurrency(metrics.profit)}</p>
-                <div className="mt-1 flex items-center text-sm text-green-600">
-                  <ArrowUpIcon />
-                  <span>{metrics.profitChange}% t.o.v. vorige maand</span>
-                </div>
-              </div>
-              
-              <div className="bg-white p-4 rounded-lg shadow">
-                <h3 className="text-lg font-medium text-gray-900">Marge</h3>
-                <p className="mt-1 text-3xl font-semibold text-gray-900">{metrics.margin.toFixed(1)}%</p>
-                <div className="mt-1 flex items-center text-sm text-green-600">
-                  <ArrowUpIcon />
-                  <span>{metrics.marginChange}% t.o.v. vorige maand</span>
+                <div className="bg-green-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-500">Werkelijk</p>
+                  <p className="text-lg font-semibold text-gray-900">{formatCurrency(metrics.revenue)}</p>
                 </div>
               </div>
             </div>
+
+            {/* Expenses Comparison */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-medium text-gray-500">Uitgaven</h3>
+                <div className={`flex items-center px-2 py-1 rounded-full text-xs font-semibold ${metrics.expensesChange <= 0 ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'}`}>
+                  {metrics.expensesChange <= 0 ? <ArrowDownIcon /> : <ArrowUpIcon />}
+                  {Math.abs(metrics.expensesChange)}%
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-500">Gepland</p>
+                  <p className="text-lg font-semibold text-gray-900">{formatCurrency(metrics.plannedExpenses)}</p>
+                </div>
+                <div className="bg-red-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-500">Werkelijk</p>
+                  <p className="text-lg font-semibold text-gray-900">{formatCurrency(metrics.expenses)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Profit Comparison */}
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-medium text-gray-500">Resultaat</h3>
+                <div className={`flex items-center px-2 py-1 rounded-full text-xs font-semibold ${metrics.profitChange >= 0 ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'}`}>
+                  {metrics.profitChange >= 0 ? <ArrowUpIcon /> : <ArrowDownIcon />}
+                  {Math.abs(metrics.profitChange)}%
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-500">Gepland</p>
+                  <p className="text-lg font-semibold text-gray-900">{formatCurrency(metrics.plannedProfit)}</p>
+                </div>
+                <div className="bg-blue-50 p-3 rounded-lg">
+                  <p className="text-sm text-gray-500">Werkelijk</p>
+                  <p className="text-lg font-semibold text-gray-900">{formatCurrency(metrics.profit)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-lg font-medium text-gray-900 mb-4">Recente Activiteit</h2>
+        <div className="space-y-4">
+          {revenueData.length > 0 ? (
+            revenueData.slice(0, 5).map((entry, index) => (
+              <div key={entry.id || index} className="flex items-center justify-between py-2 border-b">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Omzet geregistreerd</p>
+                  <p className="text-xs text-gray-500">
+                    {entry.month}/{entry.year}
+                  </p>
+                </div>
+                <p className="text-sm font-medium text-gray-900">
+                  {formatCurrency(entry.amount || 0)}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="text-sm text-gray-500">Geen recente activiteit</p>
           )}
         </div>
       </div>
-      
-      <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-          <div className="px-4 py-5 sm:px-6">
-            <h2 className="text-lg font-medium text-gray-900">Recente activiteit</h2>
-          </div>
-          <div className="border-t border-gray-200">
-            <ul className="divide-y divide-gray-200">
-              {loading ? (
-                <li className="px-4 py-3">
-                  <p className="text-sm text-gray-500">Laden...</p>
-                </li>
-              ) : revenueData.length > 0 ? (
-                revenueData.slice(0, 3).map((entry, index) => (
-                  <li key={entry.id || index} className="px-4 py-3">
-                    <p className="text-sm font-medium text-gray-900">Omzet geregistreerd</p>
-                    <p className="text-sm text-gray-500">
-                      {formatCurrency(entry.amount || 0)} - {entry.month}/{entry.year}
-                    </p>
-                  </li>
-                ))
-              ) : (
-                <li className="px-4 py-3">
-                  <p className="text-sm text-gray-500">Geen recente activiteit</p>
-                </li>
-              )}
-            </ul>
-          </div>
-        </div>
-        
-        <div className="bg-white shadow overflow-hidden sm:rounded-lg">
-          <div className="px-4 py-5 sm:px-6">
-            <h2 className="text-lg font-medium text-gray-900">Snelle links</h2>
-          </div>
-          <div className="border-t border-gray-200 px-4 py-5 sm:p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Link href="/budget/revenue" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
-                Omzet begroting
-                <ArrowRightIcon />
-              </Link>
-              <Link href="/budget/expenses" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
-                Uitgaven begroting
-                <ArrowRightIcon />
-              </Link>
-              <Link href="/actual/revenue" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
-                Actuele omzet
-                <ArrowRightIcon />
-              </Link>
-              <Link href="/actual/expenses" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
-                Actuele uitgaven
-                <ArrowRightIcon />
-              </Link>
-            </div>
-          </div>
+
+      {/* Quick Actions */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-lg font-medium text-gray-900 mb-4">Snelle Acties</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Link href="/budget/revenue" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+            Omzet begroting
+            <ArrowRightIcon className="ml-2 h-4 w-4" />
+          </Link>
+          <Link href="/budget/expenses" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+            Uitgaven begroting
+            <ArrowRightIcon className="ml-2 h-4 w-4" />
+          </Link>
+          <Link href="/actual/revenue" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+            Actuele omzet
+            <ArrowRightIcon className="ml-2 h-4 w-4" />
+          </Link>
+          <Link href="/actual/expenses" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+            Actuele uitgaven
+            <ArrowRightIcon className="ml-2 h-4 w-4" />
+          </Link>
         </div>
       </div>
     </div>
   );
-} 
+}
+
+// Formatteer valuta voor weergave
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(amount);
+}; 
