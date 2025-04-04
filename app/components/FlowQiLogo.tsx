@@ -1,0 +1,22 @@
+import React from 'react';
+
+interface FlowQiLogoProps {
+  className?: string;
+}
+
+export const FlowQiLogo: React.FC<FlowQiLogoProps> = ({ className = '' }) => {
+  return (
+    <svg 
+      width="97" 
+      height="99" 
+      viewBox="0 0 97 99" 
+      fill="none" 
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+    >
+      <path d="M0.0872803 0.763474L73.4939 48.3782L55.4226 60.1215L19.0009 43.7102L0.0872803 0.763474Z" fill="#C449FF"/>
+      <path d="M55.4222 60.1216L42.9477 98.0844L32.7399 74.8255L55.4222 60.1216Z" fill="#9280FF"/>
+      <path d="M45.0243 23.9556L63.4863 35.8824L67.4226 24.0639L96.7653 26.804L53.8197 7.4872L45.0243 23.9556Z" fill="#9280FF"/>
+    </svg>
+  );
+}; 

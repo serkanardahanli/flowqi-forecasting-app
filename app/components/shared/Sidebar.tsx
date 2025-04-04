@@ -12,7 +12,8 @@ import {
   ArrowTrendingUpIcon,
   ArrowTrendingDownIcon,
   ChevronDownIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  Cog6ToothIcon
 } from '@heroicons/react/24/outline';
 
 // Menustructuur definities
@@ -23,16 +24,6 @@ const menuStructure = [
     icon: <HomeIcon className="h-5 w-5 mr-3" />,
     path: '/',
     type: 'standalone'
-  },
-  {
-    id: 'gl-accounts',
-    label: 'Grootboekrekeningen',
-    icon: <BookOpenIcon className="h-5 w-5 mr-3" />,
-    type: 'expandable',
-    submenu: [
-      { path: '/gl-accounts', label: 'Overzicht' },
-      { path: '/gl-accounts/manage', label: 'Beheer' }
-    ]
   },
   {
     id: 'products',
@@ -70,8 +61,12 @@ const menuStructure = [
     id: 'settings',
     label: 'Instellingen',
     icon: <CogIcon className="h-5 w-5 mr-3" />,
-    path: '/settings',
-    type: 'standalone'
+    type: 'expandable',
+    submenu: [
+      { path: '/settings', label: 'Algemeen' },
+      { path: '/settings/gl-accounts', label: 'Grootboekrekeningen' },
+      { path: '/settings/product-groups', label: 'Productgroepen' }
+    ]
   }
 ];
 
@@ -134,12 +129,6 @@ const Sidebar = () => {
 
   return (
     <div className="w-64 h-full bg-white border-r border-gray-200 flex flex-col shadow-sm">
-      {/* Visuele debug marker */}
-      <div className="bg-yellow-300 p-2 text-red-600 text-xs font-bold">
-        NIEUWE SIDEBAR CODE GELADEN
-        {currentTime && <span> - {currentTime}</span>}
-      </div>
-      
       {/* Logo en app naam */}
       <div className="p-5 border-b border-gray-200">
         <h1 className="text-xl font-bold text-indigo-600">FlowQi</h1>
@@ -191,7 +180,7 @@ const Sidebar = () => {
                           <Link 
                             href={subItem.path}
                             className={`block px-3 py-1.5 rounded-md text-sm transition-colors duration-150 ease-in-out ${
-                              isActive(subItem.path) && pathname !== '/' + item.id
+                              isActive(subItem.path)
                                 ? 'bg-indigo-50 text-indigo-700 font-medium' 
                                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
                             }`}

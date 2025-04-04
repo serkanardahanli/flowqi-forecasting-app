@@ -2,10 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import MainLayout from '@/app/components/MainLayout';
-import { PlusIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { PlusIcon } from '@heroicons/react/24/outline';
 import { Product, ProductType } from '@/types/models';
 import { getBrowserSupabaseClient } from '@/app/lib/supabase';
-import type { Database } from '@/types/supabase';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -23,35 +22,42 @@ export default function ProductsPage() {
   });
   const [isEditing, setIsEditing] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  // Producten ophalen bij eerste render
+  useEffect(() => {
+    fetchProducts();
+  }, []); // Lege dependency array zorgt ervoor dat dit slechts één keer wordt uitgevoerd
 
   // Producten ophalen
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const supabase = getBrowserSupabaseClient();
-        
-        // Haal alle producten op
-        const { data, error } = await supabase
-          .from('products')
-          .select('*')
-          .order('name');
-        
-        if (error) throw error;
-        
-        setProducts(data || []);
-      } catch (err) {
-        console.error('Error fetching products:', err);
-        setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van de producten');
-      } finally {
-        setLoading(false);
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const supabase = getBrowserSupabaseClient();
+      
+      // Eenvoudige query zonder complexe joins om eerst te controleren of dit werkt
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('name');
+      
+      if (error) {
+        console.error('Error fetching products:', error);
+        throw error;
       }
-    };
-    
-    fetchProducts();
-  }, []);
+      
+      console.log('Products loaded:', data?.length || 0);
+      setProducts(data || []);
+    } catch (err) {
+      console.error('Error in fetchProducts:', err);
+      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van de producten');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Reset form helper
   const resetForm = () => {
@@ -72,22 +78,28 @@ export default function ProductsPage() {
   // Formulier versturen
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    
     try {
+      setLoading(true);
+      setError(null);
+      
       const supabase = getBrowserSupabaseClient();
       
-      // Ensure formData has organization_id
-      const dataToSubmit = {
-        ...formData,
-        organization_id: formData.organization_id || '00000000-0000-0000-0000-000000000000'
+      // Alleen velden meesturen die in de database bestaan
+      const productData = {
+        name: formData.name,
+        description: formData.description || null,
+        price: formData.price ? parseFloat(formData.price.toString()) : 0,
+        type: formData.type,
+        gl_account_id: formData.gl_account_id || null,
+        is_required: Boolean(formData.is_required),
+        organization_id: formData.organization_id
       };
       
       if (isEditing && editId) {
         // Update product
         const { error } = await supabase
           .from('products')
-          .update(dataToSubmit)
+          .update(productData)
           .eq('id', editId);
         
         if (error) throw error;
@@ -95,26 +107,24 @@ export default function ProductsPage() {
         // Create new product
         const { error } = await supabase
           .from('products')
-          .insert([dataToSubmit]);
+          .insert([productData]);
         
         if (error) throw error;
       }
       
-      // Refresh product list and reset form
+      // Reset form
       resetForm();
       
       // Refresh product list
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('name');
+      fetchProducts();
       
-      if (error) throw error;
-      
-      setProducts(data || []);
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
-      console.error('Error saving product:', err);
+      console.error('Error in handleSubmit:', err);
       setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het opslaan van het product');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -161,14 +171,218 @@ export default function ProductsPage() {
     field: keyof Omit<Product, 'id'>,
     value: string | number | boolean
   ) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    // For price field, handle empty string case to avoid NaN
+    if (field === 'price') {
+      setFormData(prev => ({ 
+        ...prev, 
+        [field]: value === '' ? '' : parseFloat(value.toString()) 
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [field]: value }));
+    }
+  };
+
+  // Synchroniseer grootboekrekeningen met producten
+  const handleSyncGLAccounts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setSyncMessage(null);
+      
+      const supabase = getBrowserSupabaseClient();
+      
+      // Haal alle inkomsten grootboekrekeningen op
+      const { data: glAccounts, error: glError } = await supabase
+        .from('gl_accounts')
+        .select('id, code, name, category')
+        .eq('type', 'Inkomsten');
+        
+      if (glError) {
+        console.error('Error fetching GL accounts:', glError);
+        throw new Error(`Fout bij ophalen grootboekrekeningen: ${glError.message}`);
+      }
+      
+      if (!glAccounts || glAccounts.length === 0) {
+        setSyncMessage('Geen inkomsten grootboekrekeningen gevonden.');
+        return;
+      }
+      
+      console.log('Found GL accounts:', glAccounts.length);
+      
+      // Controleer welke al bestaan als product
+      const { data: existingProducts, error: checkError } = await supabase
+        .from('products')
+        .select('code');
+        
+      if (checkError) {
+        console.error('Error checking existing products:', checkError);
+        throw new Error(`Fout bij controleren bestaande producten: ${checkError.message}`);
+      }
+      
+      const existingCodes = existingProducts?.map(p => p.code) || [];
+      console.log('Existing product codes:', existingCodes);
+      
+      // Filter alleen nieuwe rekeningen
+      const newAccounts = glAccounts.filter(acc => !existingCodes.includes(acc.code));
+      
+      if (newAccounts.length === 0) {
+        setSyncMessage('Alle grootboekrekeningen zijn al gesynchroniseerd.');
+        return;
+      }
+      
+      console.log('New accounts to add:', newAccounts.length);
+      
+      // Maak eenvoudige producten aan met alleen de verplichte velden
+      let successCount = 0;
+      let errorCount = 0;
+      
+      for (const account of newAccounts) {
+        try {
+          // Alleen verplichte velden + enkele extra's
+          const productData = {
+            code: account.code,
+            name: account.name,
+            price: 29.99,
+            category: account.category || 'Overig',
+            type: account.category || 'Overig',
+            gl_account_id: account.id
+          };
+          
+          console.log('Adding product:', productData);
+          
+          const { error: insertError } = await supabase
+            .from('products')
+            .insert([productData]);
+            
+          if (insertError) {
+            console.error(`Error adding product ${account.name}:`, insertError);
+            errorCount++;
+          } else {
+            successCount++;
+          }
+        } catch (err) {
+          console.error(`Exception when adding product ${account.name}:`, err);
+          errorCount++;
+        }
+      }
+      
+      if (errorCount > 0) {
+        setSyncMessage(`${successCount} producten succesvol aangemaakt, ${errorCount} fouten.`);
+      } else {
+        setSyncMessage(`${successCount} nieuwe producten aangemaakt.`);
+      }
+      
+      // Refresh product list
+      fetchProducts();
+    } catch (err) {
+      console.error('Error in handleSyncGLAccounts:', err);
+      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het synchroniseren van grootboekrekeningen');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handmatige toevoegmethode voor Support Tool
+  const handleAddSupportTool = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setSyncMessage(null);
+      
+      const supabase = getBrowserSupabaseClient();
+      
+      // Controleer of Support Tool al bestaat
+      const { data: existing, error: checkError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('code', '8022');
+        
+      if (checkError) {
+        console.error('Error checking existing Support Tool:', checkError);
+        throw new Error(`Fout bij controleren bestaand Support Tool product: ${checkError.message}`);
+      }
+      
+      if (existing && existing.length > 0) {
+        setSyncMessage('Support Tool product bestaat al!');
+        return;
+      }
+      
+      // Haal de GL-rekening op voor Support Tool
+      const { data: glAccount, error: glError } = await supabase
+        .from('gl_accounts')
+        .select('id')
+        .eq('code', '8022')
+        .single();
+        
+      if (glError) {
+        if (glError.code === 'PGRST116') { // Niet gevonden
+          console.log('GL account for Support Tool not found, creating product without GL link');
+          
+          // Maak het product zonder GL-koppeling
+          const basicProduct = {
+            code: '8022',
+            name: 'Support Tool',
+            price: 39.99,
+            type: 'saas',
+            category: 'SaaS'
+          };
+          
+          const { error: insertError } = await supabase
+            .from('products')
+            .insert([basicProduct]);
+            
+          if (insertError) {
+            console.error('Error inserting Support Tool product:', insertError);
+            throw new Error(`Fout bij toevoegen Support Tool product: ${insertError.message}`);
+          }
+          
+          setSyncMessage('Support Tool product aangemaakt (zonder GL-koppeling)');
+        } else {
+          console.error('Error fetching GL account for Support Tool:', glError);
+          throw new Error(`Fout bij ophalen grootboekrekening voor Support Tool: ${glError.message}`);
+        }
+      } else {
+        console.log('GL account found for Support Tool, creating product with GL link');
+        
+        // Maak het product met GL-koppeling
+        const productWithGL = {
+          code: '8022',
+          name: 'Support Tool',
+          price: 39.99,
+          type: 'saas',
+          category: 'SaaS',
+          gl_account_id: glAccount.id
+        };
+        
+        const { error: insertError } = await supabase
+          .from('products')
+          .insert([productWithGL]);
+          
+        if (insertError) {
+          console.error('Error inserting Support Tool product with GL link:', insertError);
+          throw new Error(`Fout bij toevoegen Support Tool product: ${insertError.message}`);
+        }
+        
+        setSyncMessage('Support Tool product aangemaakt en gekoppeld aan GL-rekening');
+      }
+      
+      // Refresh product list
+      fetchProducts();
+    } catch (err) {
+      console.error('Error in handleAddSupportTool:', err);
+      setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het toevoegen van Support Tool');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
+      <MainLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+      </MainLayout>
     );
   }
 
@@ -177,21 +391,49 @@ export default function ProductsPage() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold text-[#1E1E3F]">Producten</h1>
-          <button
-            onClick={() => {
-              resetForm();
-              setShowModal(true);
-            }}
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
-          >
-            <PlusIcon className="h-5 w-5 mr-2" />
-            Nieuw product
-          </button>
+          <div className="flex space-x-2">
+            <button
+              onClick={handleSyncGLAccounts}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
+              disabled={loading}
+            >
+              Sync GL Rekeningen
+            </button>
+            <button
+              onClick={handleAddSupportTool}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700"
+              disabled={loading}
+            >
+              Support Tool Toevoegen
+            </button>
+            <button
+              onClick={() => {
+                resetForm();
+                setShowModal(true);
+              }}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700"
+            >
+              <PlusIcon className="h-5 w-5 mr-2" />
+              Nieuw product
+            </button>
+          </div>
         </div>
 
         {error && (
           <div className="mb-4 p-4 text-sm text-red-700 bg-red-100 rounded-lg">
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 p-4 text-sm text-green-700 bg-green-100 rounded-lg">
+            Product succesvol opgeslagen!
+          </div>
+        )}
+
+        {syncMessage && (
+          <div className="mb-4 p-4 text-sm text-blue-700 bg-blue-100 rounded-lg">
+            {syncMessage}
           </div>
         )}
 
@@ -209,6 +451,9 @@ export default function ProductsPage() {
                   Prijs
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Grootboekrekening
+                </th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Verplicht
                 </th>
                 <th scope="col" className="relative px-6 py-3">
@@ -219,7 +464,7 @@ export default function ProductsPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {products.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
                     Geen producten gevonden. Klik op "Nieuw product" om er een toe te voegen.
                   </td>
                 </tr>
@@ -231,13 +476,28 @@ export default function ProductsPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        product.type === 'saas' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
+                        product.type === 'saas' ? 'bg-blue-100 text-blue-800' : 
+                        product.type === 'hardware' ? 'bg-green-100 text-green-800' : 
+                        product.type === 'service' ? 'bg-purple-100 text-purple-800' : 
+                        'bg-yellow-100 text-yellow-800'
                       }`}>
-                        {product.type === 'saas' ? 'SaaS' : 'Consultancy'}
+                        {product.type === 'saas' ? 'SaaS' : 
+                         product.type === 'hardware' ? 'Hardware' : 
+                         product.type === 'service' ? 'Service' : 
+                         product.type}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       €{product.price.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {product.gl_account_id ? (
+                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                          {product.gl_account_id}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {product.is_required ? 'Ja' : 'Nee'}
@@ -247,13 +507,13 @@ export default function ProductsPage() {
                         onClick={() => handleEdit(product)}
                         className="text-indigo-600 hover:text-indigo-900 mr-3"
                       >
-                        <PencilIcon className="h-5 w-5" />
+                        Bewerken
                       </button>
                       <button
                         onClick={() => handleDelete(product.id)}
                         className="text-red-600 hover:text-red-900"
                       >
-                        <TrashIcon className="h-5 w-5" />
+                        Verwijderen
                       </button>
                     </td>
                   </tr>
@@ -323,8 +583,8 @@ export default function ProductsPage() {
                           id="price"
                           min="0"
                           step="0.01"
-                          value={formData.price}
-                          onChange={(e) => handleFormChange('price', parseFloat(e.target.value) || 0)}
+                          value={formData.price === 0 ? '' : formData.price}
+                          onChange={(e) => handleFormChange('price', e.target.value)}
                           className="mt-1 block w-full pl-7 pr-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                           required
                         />
@@ -342,7 +602,9 @@ export default function ProductsPage() {
                         className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                       >
                         <option value="saas">SaaS</option>
-                        <option value="consultancy">Consultancy</option>
+                        <option value="hardware">Hardware</option>
+                        <option value="service">Service</option>
+                        <option value="other">Overig</option>
                       </select>
                     </div>
                   </div>

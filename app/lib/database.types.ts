@@ -296,6 +296,29 @@ export type Database = {
           updated_at?: string;
         };
       };
+      gl_accounts: {
+        Row: {
+          id: string;
+          name: string;
+          account_number: string;
+          type: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          account_number: string;
+          type: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          account_number?: string;
+          type?: string;
+          created_at?: string;
+        };
+      };
     };
   };
 }; 

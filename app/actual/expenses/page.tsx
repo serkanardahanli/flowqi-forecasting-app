@@ -100,7 +100,8 @@ export default function ActualExpensesPage() {
         }
       } catch (err) {
         console.error("Onverwachte fout:", err);
-        setError(`Onverwachte fout: ${err.message}`);
+        const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';
+        setError(`Onverwachte fout: ${errorMessage}`);
       } finally {
         setLoading(false);
       }

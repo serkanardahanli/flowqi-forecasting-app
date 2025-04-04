@@ -1,12 +1,13 @@
-import { Inter } from 'next/font/google';
-import type { Metadata } from 'next';
 import './globals.css';
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import Sidebar from '@/app/components/shared/Sidebar';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'FlowQi - Financial Forecasting SaaS',
-  description: 'Powerful SaaS solution for financial forecasting and management',
+  title: 'FlowQi Finance',
+  description: 'Financieel overzicht en planning',
 };
 
 export default function RootLayout({
@@ -15,9 +16,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="nl">
+    <html lang="en">
       <body className={inter.className}>
-        {children}
+        <div className="flex h-screen bg-gray-100">
+          <Sidebar />
+          <div className="flex-1 overflow-y-auto">
+            <main className="p-6">
+              {children}
+            </main>
+          </div>
+        </div>
       </body>
     </html>
   );

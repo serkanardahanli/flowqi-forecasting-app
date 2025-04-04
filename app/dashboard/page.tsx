@@ -20,6 +20,7 @@ import {
   ChartOptions
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
+import PeriodFilter from '@/app/components/PeriodFilter';
 
 // Registreer Chart.js componenten
 ChartJS.register(
@@ -122,6 +123,65 @@ export default function Dashboard() {
     plannedProfit: 0
   });
   const [error, setError] = useState<string | null>(null);
+  const [selectedPeriod, setSelectedPeriod] = useState({
+    startMonth: 1,
+    endMonth: 3,
+    year: new Date().getFullYear()
+  });
+  const [periodFilter, setPeriodFilter] = useState('q1');
+
+  const handlePeriodChange = (value: string) => {
+    console.log('Period changed:', value);
+    setPeriodFilter(value);
+    
+    // Bereken de juiste maanden op basis van de geselecteerde periode
+    let startMonth = 1;
+    let endMonth = 12;
+    
+    switch (value) {
+      case 'q1':
+        startMonth = 1;
+        endMonth = 3;
+        break;
+      case 'q2':
+        startMonth = 4;
+        endMonth = 6;
+        break;
+      case 'q3':
+        startMonth = 7;
+        endMonth = 9;
+        break;
+      case 'q4':
+        startMonth = 10;
+        endMonth = 12;
+        break;
+      case 'h1':
+        startMonth = 1;
+        endMonth = 6;
+        break;
+      case 'h2':
+        startMonth = 7;
+        endMonth = 12;
+        break;
+      case 'year':
+        startMonth = 1;
+        endMonth = 12;
+        break;
+      default:
+        // Voor individuele maanden (m1-m12)
+        if (value.startsWith('m')) {
+          const month = parseInt(value.substring(1));
+          startMonth = month;
+          endMonth = month;
+        }
+    }
+    
+    setSelectedPeriod({
+      startMonth,
+      endMonth,
+      year: new Date().getFullYear()
+    });
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -134,6 +194,9 @@ export default function Dashboard() {
           .from('actual_entries')
           .select('*')
           .eq('entry_type', 'revenue')
+          .eq('year', selectedPeriod.year)
+          .gte('month', selectedPeriod.startMonth)
+          .lte('month', selectedPeriod.endMonth)
           .order('created_at', { ascending: false });
           
         if (actualRevenueError) {
@@ -145,6 +208,9 @@ export default function Dashboard() {
           .from('actual_entries')
           .select('*')
           .eq('entry_type', 'expense')
+          .eq('year', selectedPeriod.year)
+          .gte('month', selectedPeriod.startMonth)
+          .lte('month', selectedPeriod.endMonth)
           .order('created_at', { ascending: false });
           
         if (actualExpensesError) {
@@ -156,6 +222,9 @@ export default function Dashboard() {
           .from('budget_entries')
           .select('*')
           .eq('type', 'revenue')
+          .eq('year', selectedPeriod.year)
+          .gte('month', selectedPeriod.startMonth)
+          .lte('month', selectedPeriod.endMonth)
           .order('created_at', { ascending: false });
           
         if (budgetRevenueError) {
@@ -167,6 +236,9 @@ export default function Dashboard() {
           .from('budget_entries')
           .select('*')
           .eq('type', 'expense')
+          .eq('year', selectedPeriod.year)
+          .gte('month', selectedPeriod.startMonth)
+          .lte('month', selectedPeriod.endMonth)
           .order('created_at', { ascending: false });
           
         if (budgetExpensesError) {
@@ -219,7 +291,7 @@ export default function Dashboard() {
     };
     
     fetchData();
-  }, []);
+  }, [selectedPeriod]);
 
   if (loading) {
     return (
@@ -231,7 +303,10 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8 text-gray-900">Dashboard</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+        <PeriodFilter onChange={handlePeriodChange} />
+      </div>
       
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -293,7 +368,7 @@ export default function Dashboard() {
         {/* Revenue vs Expenses Chart */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Omzet vs Uitgaven</h2>
-          <div className="h-64">
+          <div className="relative h-[300px] w-full">
             <Bar
               data={{
                 labels: ['Omzet', 'Uitgaven', 'Resultaat'],
@@ -324,6 +399,12 @@ export default function Dashboard() {
                     ticks: {
                       callback: (value) => formatCurrency(Number(value))
                     }
+                  }
+                },
+                plugins: {
+                  legend: {
+                    position: 'top' as const,
+                    align: 'end' as const
                   }
                 }
               }}

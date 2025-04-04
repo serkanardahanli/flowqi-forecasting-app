@@ -228,25 +228,18 @@ export default function BudgetRevenuePage() {
   
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
+    
     setSubmitting(true);
     setError('');
     setSuccess('');
     
     try {
-      if (!amount) {
-        throw new Error('Vul een bedrag in');
+      if (!defaultOrganizationId) {
+        throw new Error('Geen organisatie geselecteerd.');
       }
       
-      if (isSaasProduct && !numberOfUsers) {
-        throw new Error('Vul het aantal gebruikers in voor SaaS producten');
-      }
-      
-      if (isConsultancyProduct && !numberOfUsers) {
-        throw new Error('Vul het aantal uren in voor consultancy producten');
-      }
-      
-      // Kies de juiste gl_account_id op basis van het product type
-      let glAccountIdToUse;
+      let glAccountIdToUse: string;
       
       if (isConsultancyProduct) {
         if (!defaultConsultancyGlAccountId) {
@@ -268,7 +261,7 @@ export default function BudgetRevenuePage() {
       // Zoek eerst de exacte entry die we willen bijwerken
       const { data: existingEntries, error: fetchError } = await supabase
         .from('budget_entries')
-        .select('id')
+        .select('*')
         .eq('organization_id', defaultOrganizationId)
         .eq('gl_account_id', glAccountIdToUse)
         .eq('year', selectedYear)
@@ -280,20 +273,29 @@ export default function BudgetRevenuePage() {
         throw new Error(`Error bij zoeken naar bestaande begrotingspost: ${fetchError.message}`);
       }
       
-      console.log("Bestaande entries:", existingEntries);
+      // Log voor debugging
+      console.log("Checking existing entries for:", {
+        organization_id: defaultOrganizationId,
+        gl_account_id: glAccountIdToUse,
+        year: selectedYear,
+        month: selectedMonth,
+        type: 'revenue'
+      });
+      console.log("Found entries:", existingEntries);
       
-      // Als we een bestaande entry hebben, bijwerken. Anders een nieuwe toevoegen.
+      const entryData = {
+        description: selectedProductId ? products.find(p => p.id === selectedProductId)?.name || 'Onbekend product' : 'Handmatige invoer',
+        amount: totalAmount,
+        product_id: selectedProductId || null,
+        number_of_users: numberOfUsers ? parseInt(numberOfUsers) : null,
+        updated_at: new Date().toISOString()
+      };
+      
       if (existingEntries && existingEntries.length > 0) {
-        // Update de bestaande entry via ID
+        // Update de bestaande entry
         const { error: updateError } = await supabase
           .from('budget_entries')
-          .update({
-            description: selectedProductId ? products.find(p => p.id === selectedProductId)?.name || 'Onbekend product' : 'Handmatige invoer',
-            amount: totalAmount,
-            product_id: selectedProductId || null,
-            number_of_users: numberOfUsers ? parseInt(numberOfUsers) : null,
-            updated_at: new Date().toISOString()
-          })
+          .update(entryData)
           .eq('id', existingEntries[0].id);
           
         if (updateError) {
@@ -306,23 +308,26 @@ export default function BudgetRevenuePage() {
         // Voeg een nieuwe entry toe
         const { error: insertError } = await supabase
           .from('budget_entries')
-          .insert([{
-            description: selectedProductId ? products.find(p => p.id === selectedProductId)?.name || 'Onbekend product' : 'Handmatige invoer',
-            amount: totalAmount,
+          .upsert([{
+            ...entryData,
             year: selectedYear,
             month: selectedMonth,
-            product_id: selectedProductId || null,
             type: 'revenue',
             organization_id: defaultOrganizationId,
             gl_account_id: glAccountIdToUse,
-            number_of_users: numberOfUsers ? parseInt(numberOfUsers) : null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }]);
+            created_at: new Date().toISOString()
+          }], {
+            onConflict: 'organization_id,gl_account_id,year,month',
+            ignoreDuplicates: false
+          });
           
         if (insertError) {
           console.error("Insert error:", insertError);
-          throw new Error(`Error bij toevoegen nieuwe begroting: ${insertError.message}`);
+          if (insertError.code === '23505') { // Postgres unique violation code
+            throw new Error(`Er bestaat al een begroting voor ${getMonthName(selectedMonth)} ${selectedYear}`);
+          } else {
+            throw new Error(`Error bij toevoegen nieuwe begroting: ${insertError.message}`);
+          }
         }
         
         setSuccess('Nieuwe omzetbegroting succesvol toegevoegd');
