@@ -11,6 +11,10 @@ interface Product {
   description?: string;
   gl_account_id: string;
   type: 'saas' | 'consultancy';
+  gl_account?: {
+    code: string;
+    level: number;
+  };
 }
 
 interface BudgetEntry {
@@ -188,6 +192,35 @@ export default function BudgetRevenuePage() {
       setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van gegevens');
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const fetchProducts = async () => {
+    try {
+      const supabase = getBrowserSupabaseClient();
+      
+      const { data, error } = await supabase
+        .from('products')
+        .select(`
+          *,
+          gl_account:gl_account_id(name, code, level)
+        `)
+        .order('name');
+      
+      if (error) throw error;
+      
+      // Filter alleen niveau 3 grootboekrekeningen (eindrekeningen)
+      const filteredProducts = data?.filter(product => 
+        product.gl_account && 
+        product.gl_account.level === 3 && 
+        ['8011', '8012', '8021', '8022', '8023'].includes(product.gl_account.code)
+      ) || [];
+      
+      setProducts(filteredProducts);
+      return filteredProducts;
+    } catch (err) {
+      console.error('Error fetching products:', err);
+      throw err;
     }
   };
   
@@ -436,7 +469,7 @@ export default function BudgetRevenuePage() {
                   <option value="">-- Selecteer een product --</option>
                   {products.map((product) => (
                     <option key={product.id} value={product.id}>
-                      {product.name} - €{parseFloat(product.price.toString()).toFixed(2)}
+                      {product.gl_account?.code} - {product.name} - €{parseFloat(product.price.toString()).toFixed(2)}
                     </option>
                   ))}
                 </select>

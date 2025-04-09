@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import MainLayout from '@/app/components/MainLayout';
 import { PlusIcon, PencilIcon, TrashIcon, FolderIcon } from '@heroicons/react/24/outline';
-import { Product, ProductType } from '@/types/models';
+import { Product, ProductType, GlAccount } from '@/types/models';
 import { getBrowserSupabaseClient } from '@/app/lib/supabase';
 import type { Database } from '@/types/supabase';
 
@@ -17,6 +17,7 @@ interface ProductGroup {
 export default function ProductManagementPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [groups, setGroups] = useState<ProductGroup[]>([]);
+  const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -26,8 +27,8 @@ export default function ProductManagementPage() {
     name: '',
     description: '',
     price: 0,
-    type: 'saas' as ProductType,
-    gl_account_id: '',
+    type: 'SaaS' as ProductType,
+    gl_account_id: null,
     is_required: false,
     group_id: null,
     organization_id: '00000000-0000-0000-0000-000000000000'
@@ -60,19 +61,37 @@ export default function ProductManagementPage() {
           throw new Error(`Fout bij ophalen groepen: ${groupsError.message}`);
         }
         
-        // Haal alle producten op
+        // Haal alle producten op met grootboekrekening informatie
         const { data: productsData, error: productsError } = await supabase
           .from('products')
-          .select('*')
+          .select(`
+            *,
+            gl_account:gl_account_id(code, name, level)
+          `)
           .order('name');
         
         if (productsError) {
           console.error('Error fetching products:', productsError);
           throw new Error(`Fout bij ophalen producten: ${productsError.message}`);
         }
+
+        // Haal alle grootboekrekeningen op
+        const { data: glAccountsData, error: glAccountsError } = await supabase
+          .from('gl_accounts')
+          .select('*')
+          .eq('type', 'Inkomsten')
+          .eq('level', 3)
+          .in('code', ['8011', '8012', '8021', '8022', '8023'])
+          .order('code');
+        
+        if (glAccountsError) {
+          console.error('Error fetching GL accounts:', glAccountsError);
+          throw new Error(`Fout bij ophalen grootboekrekeningen: ${glAccountsError.message}`);
+        }
         
         setGroups(groupsData || []);
         setProducts(productsData || []);
+        setGlAccounts(glAccountsData || []);
       } catch (err) {
         console.error('Error fetching data:', err);
         setError(err instanceof Error ? err.message : 'Er is een fout opgetreden bij het ophalen van de data');
@@ -89,8 +108,8 @@ export default function ProductManagementPage() {
       name: '',
       description: '',
       price: 0,
-      type: 'saas',
-      gl_account_id: '',
+      type: 'SaaS',
+      gl_account_id: null,
       is_required: false,
       group_id: null,
       organization_id: '00000000-0000-0000-0000-000000000000'
@@ -442,13 +461,18 @@ export default function ProductManagementPage() {
                     <label className="block text-sm font-medium text-gray-700">
                       Grootboekrekening
                     </label>
-                    <input
-                      type="text"
-                      value={formData.gl_account_id}
-                      onChange={(e) => handleFormChange('gl_account_id', e.target.value)}
+                    <select
+                      value={formData.gl_account_id || ''}
+                      onChange={(e) => handleFormChange('gl_account_id', e.target.value || null)}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                      required
-                    />
+                    >
+                      <option value="">Geen grootboekrekening</option>
+                      {glAccounts.map(glAccount => (
+                        <option key={glAccount.id} value={glAccount.id}>
+                          {glAccount.code} - {glAccount.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">

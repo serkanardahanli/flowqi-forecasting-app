@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { getBrowserSupabaseClient } from '@/app/lib/supabase';
+import { ArrowDownTrayIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline';
 
 interface GLAccount {
   id: string;
@@ -18,6 +19,84 @@ interface GLAccount {
   balans_type: 'Winst & Verlies' | 'Balans';
 }
 
+// Helper function to generate CSV content
+const generateCSVTemplate = () => {
+  const headers = [
+    'code',
+    'name',
+    'type',
+    'level',
+    'category',
+    'parent_code',
+    'debet_credit',
+    'balans_type'
+  ].join(',');
+  
+  const exampleRow = [
+    '8000',
+    'Omzet',
+    'Inkomsten',
+    '1',
+    'Omzet',
+    '',
+    'Credit',
+    'Winst & Verlies'
+  ].join(',');
+  
+  return `${headers}\n${exampleRow}`;
+};
+
+// Helper function to download CSV
+const downloadCSV = () => {
+  const csvContent = generateCSVTemplate();
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute('download', 'grootboekrekeningen_template.csv');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// Helper function to parse CSV content
+const parseCSV = (content: string) => {
+  const [headers, ...rows] = content.trim().split('\n');
+  const headerArray = headers.split(',').map(h => h.trim());
+  
+  return rows.map(row => {
+    const values = row.split(',').map(v => v.trim());
+    const record: any = {};
+    headerArray.forEach((header, index) => {
+      record[header] = values[index];
+    });
+    return record;
+  });
+};
+
+// Helper function to validate CSV data
+const validateCSVData = (data: any[]) => {
+  const errors: string[] = [];
+  
+  data.forEach((row, index) => {
+    if (!row.code) errors.push(`Rij ${index + 1}: Code is verplicht`);
+    if (!row.name) errors.push(`Rij ${index + 1}: Naam is verplicht`);
+    if (!['Inkomsten', 'Uitgaven'].includes(row.type)) {
+      errors.push(`Rij ${index + 1}: Type moet 'Inkomsten' of 'Uitgaven' zijn`);
+    }
+    if (![1, 2, 3].includes(Number(row.level))) {
+      errors.push(`Rij ${index + 1}: Niveau moet 1, 2 of 3 zijn`);
+    }
+    if (!['Debet', 'Credit'].includes(row.debet_credit)) {
+      errors.push(`Rij ${index + 1}: Debet/Credit moet 'Debet' of 'Credit' zijn`);
+    }
+    if (!['Winst & Verlies', 'Balans'].includes(row.balans_type)) {
+      errors.push(`Rij ${index + 1}: Balans Type moet 'Winst & Verlies' of 'Balans' zijn`);
+    }
+  });
+  
+  return errors;
+};
+
 export default function GLAccountsPage() {
   const [glAccounts, setGLAccounts] = useState<GLAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +112,10 @@ export default function GLAccountsPage() {
   const [accountCategory, setAccountCategory] = useState('');
   const [accountDebetCredit, setAccountDebetCredit] = useState('Credit');
   const [accountBalansType, setAccountBalansType] = useState<'Winst & Verlies' | 'Balans'>('Winst & Verlies');
+  
+  // Import state
+  const [importError, setImportError] = useState<string[]>([]);
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
   
   // Reset form
   const resetForm = () => {
@@ -308,11 +391,115 @@ export default function GLAccountsPage() {
     }
   };
 
+  // Handle CSV import
+  const handleCSVImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImportError([]);
+    setImportSuccess(null);
+    
+    try {
+      const content = await file.text();
+      const data = parseCSV(content);
+      
+      // Validate data
+      const validationErrors = validateCSVData(data);
+      if (validationErrors.length > 0) {
+        setImportError(validationErrors);
+        return;
+      }
+      
+      // Insert data into Supabase
+      const supabase = getBrowserSupabaseClient();
+      
+      // Process each row
+      for (const row of data) {
+        const { data: existing } = await supabase
+          .from('gl_accounts')
+          .select('id')
+          .eq('code', row.code);
+          
+        if (existing && existing.length > 0) {
+          setImportError(prev => [...prev, `Grootboekrekening met code ${row.code} bestaat al`]);
+          continue;
+        }
+        
+        const { error: insertError } = await supabase
+          .from('gl_accounts')
+          .insert([{
+            code: row.code,
+            name: row.name,
+            type: row.type,
+            level: Number(row.level),
+            category: row.category,
+            parent_code: row.parent_code || null,
+            debet_credit: row.debet_credit,
+            is_blocked: false,
+            is_compressed: false,
+            balans_type: row.balans_type
+          }]);
+          
+        if (insertError) {
+          setImportError(prev => [...prev, `Fout bij importeren van rij met code ${row.code}: ${insertError.message}`]);
+        }
+      }
+      
+      if (importError.length === 0) {
+        setImportSuccess('Grootboekrekeningen succesvol geïmporteerd');
+        fetchGLAccounts();
+      }
+      
+    } catch (error) {
+      setImportError(['Er is een fout opgetreden bij het verwerken van het CSV bestand']);
+      console.error('CSV import error:', error);
+    }
+    
+    // Reset file input
+    event.target.value = '';
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-black">Grootboekrekeningen</h1>
+        <div className="flex gap-4">
+          <button
+            onClick={downloadCSV}
+            className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600"
+          >
+            <ArrowDownTrayIcon className="h-5 w-5" />
+            Download Template
+          </button>
+          <label className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 cursor-pointer">
+            <ArrowUpTrayIcon className="h-5 w-5" />
+            Importeer CSV
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCSVImport}
+              className="hidden"
+            />
+          </label>
+        </div>
       </div>
+
+      {importError.length > 0 && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">
+          <p className="font-medium">Import fouten:</p>
+          <ul className="list-disc list-inside">
+            {importError.map((error, index) => (
+              <li key={index}>{error}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {importSuccess && (
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-6">
+          <p>{importSuccess}</p>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-6">

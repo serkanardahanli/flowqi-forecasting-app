@@ -1,15 +1,26 @@
-export type ProductType = 'saas' | 'hardware' | 'service';
+export type ProductType = 'SaaS' | 'Consultancy' | 'saas' | 'consultancy' | 'hardware' | 'service';
 
 export interface Product {
   id: string;
-  name: string;
-  description?: string;
-  price: number;
   type: ProductType;
-  gl_account_id?: string;
+  name: string;
+  price: number;
+  description?: string;
   is_required: boolean;
+  gl_account_id: string | null;
   group_id: string | null;
   organization_id: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface GlAccount {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  level: number;
+  parent_code?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -21,4 +32,5 @@ export interface ProductGroup {
   organization_id: string;
   created_at?: string;
   updated_at?: string;
+  products?: Product[];
 } 

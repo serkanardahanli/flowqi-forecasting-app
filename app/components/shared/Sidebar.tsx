@@ -13,7 +13,8 @@ import {
   ArrowTrendingDownIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  ChartBarIcon
 } from '@heroicons/react/24/outline';
 
 // Menustructuur definities
@@ -44,6 +45,16 @@ const menuStructure = [
       { path: '/revenue', label: 'Overzicht' },
       { path: '/actual/revenue', label: 'Registratie' },
       { path: '/budget/revenue', label: 'Begroting' }
+    ]
+  },
+  {
+    id: 'forecasts',
+    label: 'Forecast',
+    icon: <ChartBarIcon className="h-5 w-5 mr-3" />,
+    type: 'expandable',
+    submenu: [
+      { path: '/forecasts', label: 'Overzicht' },
+      { path: '/forecasts/strategic', label: 'Strategisch' }
     ]
   },
   {
@@ -156,34 +167,34 @@ const Sidebar = () => {
                 <>
                   <button
                     onClick={() => toggleSection(item.id)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium transition-colors duration-150 ease-in-out ${
-                      item.submenu?.some(subItem => isActive(subItem.path))
+                    className={`
+                      flex items-center justify-between w-full px-3 py-2 rounded-md text-sm font-medium transition-colors duration-150 ease-in-out
+                      ${expandedSections.has(item.id) 
                         ? 'bg-indigo-50 text-indigo-700' 
-                        : 'text-gray-700 hover:bg-gray-100'
-                    }`}
+                        : 'text-gray-700 hover:bg-gray-100'}
+                    `}
                   >
                     <div className="flex items-center">
                       {item.icon}
                       <span>{item.label}</span>
                     </div>
-                    {expandedSections.has(item.id) ? (
-                      <ChevronDownIcon className="h-4 w-4" />
-                    ) : (
-                      <ChevronRightIcon className="h-4 w-4" />
-                    )}
+                    {expandedSections.has(item.id) 
+                      ? <ChevronDownIcon className="h-4 w-4" /> 
+                      : <ChevronRightIcon className="h-4 w-4" />}
                   </button>
                   
-                  {expandedSections.has(item.id) && item.submenu && (
-                    <ul className="mt-1 mb-1 pl-8 border-l border-indigo-100 ml-4 space-y-0.5">
-                      {item.submenu.map((subItem, index) => (
-                        <li key={index}>
-                          <Link 
+                  {expandedSections.has(item.id) && (
+                    <ul className="mt-1 ml-6 space-y-1">
+                      {item.submenu?.map((subItem) => (
+                        <li key={subItem.path}>
+                          <Link
                             href={subItem.path}
-                            className={`block px-3 py-1.5 rounded-md text-sm transition-colors duration-150 ease-in-out ${
-                              isActive(subItem.path)
+                            className={`
+                              flex items-center px-3 py-2 rounded-md text-sm transition-colors duration-150 ease-in-out
+                              ${isActive(subItem.path) 
                                 ? 'bg-indigo-50 text-indigo-700 font-medium' 
-                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-800'
-                            }`}
+                                : 'text-gray-600 hover:bg-gray-100'}
+                            `}
                           >
                             {subItem.label}
                           </Link>
@@ -198,14 +209,13 @@ const Sidebar = () => {
         </ul>
       </nav>
       
-      {/* Footer */}
-      <div className="p-4 border-t border-gray-200">
-        <p className="text-xs text-gray-500">
-          ©{new Date().getFullYear()} FlowQi Finance
-        </p>
+      {/* Tijd en versie */}
+      <div className="p-4 border-t border-gray-200 text-xs text-gray-500">
+        <div>{currentTime}</div>
+        <div>v1.0.0</div>
       </div>
     </div>
   );
 };
 
-export default Sidebar; 
+export default Sidebar;
