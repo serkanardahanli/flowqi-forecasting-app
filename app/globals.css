@@ -53,6 +53,8 @@ textarea {
 :root {
   --foreground-rgb: 0, 0, 0;
   --background-rgb: 248, 250, 252;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
   
   /* Primary color - purple */
   --color-primary-50: 250, 245, 255;
@@ -117,4 +119,19 @@ textarea {
 body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-rgb));
+}
+
+/* Force black text on light backgrounds */
+.text-white, .text-gray-100, .text-gray-200, .text-gray-300 {
+  color: black !important;
+}
+
+/* Ensure all text elements have black color by default */
+p, h1, h2, h3, h4, h5, h6, span, div, button, a, label, li {
+  color: black;
+}
+
+/* Override any white text in components */
+[class*="text-white"], [class*="text-gray-100"], [class*="text-gray-200"], [class*="text-gray-300"] {
+  color: black !important;
 } 

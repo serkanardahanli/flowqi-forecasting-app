@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlowQi</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script src="https://unpkg.com/react-router-dom@6/umd/react-router-dom.production.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .header {
+            background-color: white;
+            padding: 1rem 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2563eb;
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .nav-link {
+            color: #4b5563;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-link:hover {
+            color: #2563eb;
+        }
+
+        .main-content {
+            padding: 2rem 0;
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 1rem;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 1rem;
+        }
+
+        .card-content {
+            color: #4b5563;
+            line-height: 1.5;
+        }
+
+        .button {
+            background-color: #2563eb;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.25rem;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .button:hover {
+            background-color: #1d4ed8;
+        }
+
+        .footer {
+            background-color: white;
+            padding: 2rem 0;
+            margin-top: 2rem;
+            box-shadow: 0 -2px 4px rgba(0,0,0,0.1);
+        }
+
+        .footer-content {
+            text-align: center;
+            color: #4b5563;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { BrowserRouter, Routes, Route, Link, useNavigate } = ReactRouterDOM;
+
+        function App() {
+            return (
+                <BrowserRouter>
+                    <div className="container">
+                        <header className="header">
+                            <nav className="nav">
+                                <Link to="/" className="logo">FlowQi</Link>
+                                <div className="nav-links">
+                                    <Link to="/" className="nav-link">Home</Link>
+                                    <Link to="/about" className="nav-link">About</Link>
+                                    <Link to="/contact" className="nav-link">Contact</Link>
+                                </div>
+                            </nav>
+                        </header>
+
+                        <main className="main-content">
+                            <Routes>
+                                <Route path="/" element={<Home />} />
+                                <Route path="/about" element={<About />} />
+                                <Route path="/contact" element={<Contact />} />
+                            </Routes>
+                        </main>
+
+                        <footer className="footer">
+                            <div className="footer-content">
+                                <p>&copy; 2024 FlowQi. All rights reserved.</p>
+                            </div>
+                        </footer>
+                    </div>
+                </BrowserRouter>
+            );
+        }
+
+        function Home() {
+            const navigate = useNavigate();
+
+            return (
+                <div>
+                    <div className="card">
+                        <h2 className="card-title">Welcome to FlowQi</h2>
+                        <p className="card-content">
+                            FlowQi is a modern web application that helps you manage your tasks and stay productive.
+                        </p>
+                        <button className="button" onClick={() => navigate('/about')}>
+                            Learn More
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        function About() {
+            return (
+                <div className="card">
+                    <h2 className="card-title">About FlowQi</h2>
+                    <p className="card-content">
+                        FlowQi is designed to help you achieve your goals and maintain a productive workflow.
+                        Our platform provides intuitive tools and features to streamline your daily tasks.
+                    </p>
+                </div>
+            );
+        }
+
+        function Contact() {
+            return (
+                <div className="card">
+                    <h2 className="card-title">Contact Us</h2>
+                    <p className="card-content">
+                        Have questions or feedback? We'd love to hear from you!
+                        <br />
+                        Email: contact@flowqi.com
+                    </p>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html> 

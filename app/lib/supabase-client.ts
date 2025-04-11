@@ -12,10 +12,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-// Directe client aanmaken zonder extra opties
+// Create a single supabase client for interacting with your database
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
-// Functie voor backward compatibility
+// Function for backward compatibility
 export function getBrowserSupabaseClient() {
   return supabase;
 }

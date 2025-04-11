@@ -76,7 +76,8 @@ const menuStructure = [
     submenu: [
       { path: '/settings', label: 'Algemeen' },
       { path: '/settings/gl-accounts', label: 'Grootboekrekeningen' },
-      { path: '/settings/product-groups', label: 'Productgroepen' }
+      { path: '/settings/product-groups', label: 'Productgroepen' },
+      { path: '/settings/exact', label: 'Exact Online' }
     ]
   }
 ];

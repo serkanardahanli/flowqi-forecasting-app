@@ -1,8 +1,5 @@
-import { createServerClient } from '@supabase/ssr'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { type CookieOptions } from '@supabase/ssr'
-
-// Type for the database - adjust according to your project
 import type { Database } from '@/types/supabase'
 
 // Helper for server components
@@ -18,10 +15,20 @@ export function getServerSupabaseClient() {
           return cookieStore.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
-          cookieStore.set(name, value, options)
+          try {
+            cookieStore.set({ name, value, ...options })
+          } catch (error) {
+            // Handle the error case when cookies cannot be set
+            console.error('Error setting cookie:', error)
+          }
         },
         remove(name: string, options: CookieOptions) {
-          cookieStore.set(name, '', { ...options, maxAge: 0 })
+          try {
+            cookieStore.set({ name, value: '', ...options })
+          } catch (error) {
+            // Handle the error case when cookies cannot be removed
+            console.error('Error removing cookie:', error)
+          }
         },
       },
     }
