@@ -4,7 +4,7 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "regions": ["ams1"],
+  "regions": ["arn1"],
   "env": {
     "NEXT_PUBLIC_BASE_URL": "https://flowqi-dev.freyrholding.com",
     "NEXT_PUBLIC_EXACT_REDIRECT_URI": "https://flowqi-dev.freyrholding.com/api/exact/callback"
