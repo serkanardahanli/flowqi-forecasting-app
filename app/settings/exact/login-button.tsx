@@ -1,21 +1,38 @@
 'use client';
 
-import { Button } from '@/app/components/ui/button';
-
-export function ExactLoginButton() {
-  const startExactAuth = () => {
-    const clientId = '4b311ef8-c54e-479d-8dc0-855d2627c462';
-    // Use the exact ngrok URL as configured in Exact Online
-    const redirectUri = encodeURIComponent('https://broadly-happy-escargot.ngrok-free.app/api/exact/callback');
-    const authUrl = `https://start.exactonline.nl/api/oauth2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&force_login=1`;
+export function LoginButton() {
+  const handleLogin = () => {
+    const clientId = process.env.NEXT_PUBLIC_EXACT_CLIENT_ID;
+    const redirectUri = encodeURIComponent(process.env.NEXT_PUBLIC_EXACT_REDIRECT_URI || '');
     
-    console.log('Redirecting to Exact auth URL:', authUrl);
-    window.location.href = authUrl;
+    console.log('Using redirect URI:', redirectUri);
+    
+    window.location.href = `https://start.exactonline.nl/api/oauth2/auth?` +
+      `client_id=${clientId}` +
+      `&redirect_uri=${redirectUri}` +
+      `&response_type=code` +
+      `&state=random_state` +
+      `&force_login=1`;
   };
-
+  
   return (
-    <Button onClick={startExactAuth} className="bg-blue-500 text-black">
-      Log in bij Exact Online
-    </Button>
+    <button 
+      onClick={handleLogin}
+      style={{
+        backgroundColor: '#0070f3',
+        color: 'white',
+        border: 'none',
+        borderRadius: '4px',
+        padding: '10px 20px',
+        cursor: 'pointer',
+        fontSize: '16px',
+        width: '100%'
+      }}
+    >
+      Login met Exact Online
+    </button>
   );
-} 
+}
+
+// Exporteer ook als ExactLoginButton voor backwards compatibility
+export const ExactLoginButton = LoginButton; 

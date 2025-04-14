@@ -1,9 +1,9 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import type { Database } from '@/types/supabase'
 
 // Helper for server components
-export function getServerSupabaseClient() {
+export function createClient() {
   const cookieStore = cookies()
   
   return createServerClient<Database>(
@@ -11,22 +11,23 @@ export function getServerSupabaseClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value
+        async get(name: string) {
+          const cookie = await cookieStore.get(name)
+          return cookie?.value
         },
-        set(name: string, value: string, options: CookieOptions) {
+        set(name: string, value: string, options: any) {
           try {
-            cookieStore.set({ name, value, ...options })
+            cookieStore.set(name, value, options)
           } catch (error) {
-            // Handle the error case when cookies cannot be set
+            // Cookies can only be set in a Server Action or Route Handler
             console.error('Error setting cookie:', error)
           }
         },
-        remove(name: string, options: CookieOptions) {
+        remove(name: string, options: any) {
           try {
-            cookieStore.set({ name, value: '', ...options })
+            cookieStore.set(name, '', { ...options, maxAge: 0 })
           } catch (error) {
-            // Handle the error case when cookies cannot be removed
+            // Cookies can only be deleted in a Server Action or Route Handler
             console.error('Error removing cookie:', error)
           }
         },
